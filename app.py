@@ -12,7 +12,7 @@ from flask import Flask, jsonify, request, send_from_directory
 from werkzeug.utils import secure_filename
 
 from app_helpers import is_short_test_transcript
-from database import delete_meeting, get_meeting, init_db, list_meetings
+from database import delete_meeting, get_meeting, init_db, list_meetings, log_database_debug_info
 from recovery import recover_recordings
 from summarizer import process_transcript_text, process_txt_file
 from transcriber import AUDIO_DIR, TRANSCRIPT_DIR, transcribe_audio
@@ -226,12 +226,21 @@ def main() -> None:
         action="store_true",
         help="storage/audio와 storage/transcripts를 스캔해 누락된 MySQL row를 복구",
     )
+    parser.add_argument(
+        "--db-check",
+        action="store_true",
+        help="현재 앱이 접속하는 MySQL 서버, DB, meetings row count를 출력",
+    )
     args = parser.parse_args()
 
     watch_enabled = not args.no_watch
 
     if args.recover_recordings:
         recover_recordings()
+        if args.no_web:
+            return
+    if args.db_check:
+        log_database_debug_info("[DB-CHECK]")
         if args.no_web:
             return
     if args.process_existing:

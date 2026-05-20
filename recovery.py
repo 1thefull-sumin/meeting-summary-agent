@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from app_helpers import is_short_test_transcript
+from database import log_database_debug_info
 from summarizer import ROOT_DIR, process_transcript_text
 from transcriber import AUDIO_DIR, TRANSCRIPT_DIR
 
@@ -58,4 +59,5 @@ def recover_recordings() -> dict[str, int]:
         except Exception as exc:
             stats["failed"] += 1
             print(f"[ERROR] DB 저장 실패 사유: {transcript_path.name} / {exc}", flush=True)
+    log_database_debug_info("[RECOVER]")
     return stats

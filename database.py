@@ -13,6 +13,7 @@ from pymysql.cursors import DictCursor
 
 ROOT_DIR = Path(__file__).resolve().parent
 _LOGGED_CONFIG = False
+_LOGGED_SERVER = False
 
 
 def get_connection():
@@ -30,6 +31,7 @@ def get_connection():
     )
     with conn.cursor() as cursor:
         cursor.execute("SET time_zone = '+09:00'")
+        _log_server_once(cursor)
     return conn
 
 
@@ -60,6 +62,37 @@ def _log_config_once(config: dict[str, Any]) -> None:
         flush=True,
     )
     _LOGGED_CONFIG = True
+
+
+def _log_server_once(cursor) -> None:
+    global _LOGGED_SERVER
+    if _LOGGED_SERVER:
+        return
+    cursor.execute(
+        """
+        SELECT
+            DATABASE() AS database_name,
+            @@hostname AS hostname,
+            @@port AS port,
+            @@version AS version,
+            @@socket AS socket_path,
+            CURRENT_USER() AS current_user_name,
+            CONNECTION_ID() AS connection_id
+        """
+    )
+    row = cursor.fetchone()
+    print(
+        "[DB] MySQL 서버 확인: "
+        f"database={row.get('database_name')} / "
+        f"hostname={row.get('hostname')} / "
+        f"port={row.get('port')} / "
+        f"version={row.get('version')} / "
+        f"user={row.get('current_user_name')} / "
+        f"connection_id={row.get('connection_id')} / "
+        f"socket={row.get('socket_path')}",
+        flush=True,
+    )
+    _LOGGED_SERVER = True
 
 
 def _ensure_database(config: dict[str, Any]) -> None:
@@ -253,6 +286,7 @@ def save_meeting(record: dict[str, Any]) -> int:
                 )
                 _insert_files(cursor, meeting_id, record)
             conn.commit()
+            _log_save_verification(conn, meeting_id)
     except Exception as exc:
         print(
             f"[ERROR] MySQL insert 실패: {values['source_filename']} / {exc}",
@@ -260,6 +294,34 @@ def save_meeting(record: dict[str, Any]) -> int:
         )
         raise
     return meeting_id
+
+
+def _log_save_verification(conn, meeting_id: int) -> None:
+    with conn.cursor() as cursor:
+        cursor.execute("SELECT COUNT(*) AS row_count FROM meetings")
+        count_row = cursor.fetchone()
+        cursor.execute(
+            """
+            SELECT
+                id, title, status, source_filename,
+                DATABASE() AS database_name,
+                @@hostname AS hostname,
+                @@port AS port
+            FROM meetings
+            WHERE id = %(meeting_id)s
+            """,
+            {"meeting_id": meeting_id},
+        )
+        saved_row = cursor.fetchone()
+    print(
+        f"[DB] 저장 후 meetings row count: {count_row.get('row_count')}",
+        flush=True,
+    )
+    print(
+        "[DB] 저장 후 meeting 재조회: "
+        f"{saved_row if saved_row else 'NOT FOUND'}",
+        flush=True,
+    )
 
 
 def list_meetings() -> list[dict[str, Any]]:
@@ -280,6 +342,44 @@ def list_meetings() -> list[dict[str, Any]]:
         _row_to_dict(row, action_items.get(row["id"], []), files.get(row["id"], []), False)
         for row in rows
     ]
+
+
+def get_database_debug_info() -> dict[str, Any]:
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT
+                    DATABASE() AS database_name,
+                    @@hostname AS hostname,
+                    @@port AS port,
+                    @@version AS version,
+                    @@socket AS socket_path,
+                    CURRENT_USER() AS current_user_name,
+                    CONNECTION_ID() AS connection_id
+                """
+            )
+            info = cursor.fetchone()
+            cursor.execute("SELECT COUNT(*) AS row_count FROM meetings")
+            info["meetings_count"] = cursor.fetchone()["row_count"]
+    return info
+
+
+def log_database_debug_info(prefix: str = "[DB]") -> dict[str, Any]:
+    info = get_database_debug_info()
+    print(
+        f"{prefix} 실제 저장 DB 확인: "
+        f"database={info.get('database_name')} / "
+        f"hostname={info.get('hostname')} / "
+        f"port={info.get('port')} / "
+        f"version={info.get('version')} / "
+        f"user={info.get('current_user_name')} / "
+        f"connection_id={info.get('connection_id')} / "
+        f"socket={info.get('socket_path')} / "
+        f"meetings_count={info.get('meetings_count')}",
+        flush=True,
+    )
+    return info
 
 
 def get_meeting(meeting_id: int) -> dict[str, Any] | None:
