@@ -50,6 +50,9 @@ def process_transcript_text(
     duration_seconds: int | None = None,
     audio_path: str | Path | None = None,
     transcript_path: str | Path | None = None,
+    source_type: str = "",
+    summary_error_status: str = "error",
+    skip_summary_reason: str = "",
 ) -> int:
     transcript = transcript.strip()
     title_seed = title_seed or Path(source_name).stem
@@ -84,23 +87,35 @@ def process_transcript_text(
 
     status = "done"
     error_message = ""
-    try:
-        if not transcript:
-            raise RuntimeError("빈 TXT 파일입니다.")
-        print(f"[SUMMARY] 요약 시작: {source_name}", flush=True)
-        markdown = summarize_with_openai(source_name, transcript)
-        print(f"[SUMMARY] 요약 완료: {source_name}", flush=True)
-    except Exception as exc:
-        status = "error"
-        error_message = str(exc)
-        print(f"[ERROR] 요약 실패, error 저장으로 전환: {source_name} / {exc}", flush=True)
+    if skip_summary_reason:
+        status = "skipped"
+        error_message = skip_summary_reason
+        print(f"[SUMMARY] 요약 건너뜀: {source_name} / {skip_summary_reason}", flush=True)
         markdown = build_pending_markdown(
             title=title_seed,
             meeting_date=meeting_date,
             meeting_time=meeting_time,
-            reason=str(exc),
+            reason=skip_summary_reason,
             transcript=transcript,
         )
+    else:
+        try:
+            if not transcript:
+                raise RuntimeError("빈 TXT 파일입니다.")
+            print(f"[SUMMARY] 요약 시작: {source_name}", flush=True)
+            markdown = summarize_with_openai(source_name, transcript)
+            print(f"[SUMMARY] 요약 완료: {source_name}", flush=True)
+        except Exception as exc:
+            status = summary_error_status
+            error_message = str(exc)
+            print(f"[ERROR] 요약 실패, {status} 저장으로 전환: {source_name} / {exc}", flush=True)
+            markdown = build_pending_markdown(
+                title=title_seed,
+                meeting_date=meeting_date,
+                meeting_time=meeting_time,
+                reason=str(exc),
+                transcript=transcript,
+            )
 
     flow_text = extract_section(markdown, "Flow 공유용 요약") or build_flow_fallback(markdown)
 
@@ -131,35 +146,39 @@ def process_transcript_text(
 
     relative_audio_path = _relative_path(audio_path)
     relative_transcript_path = _relative_path(transcript_path)
-    meeting_id = save_meeting(
-        {
-            "file_hash": file_hash,
-            "title": title,
-            "meeting_date": meeting_date,
-            "meeting_time": meeting_time,
-            "status": status,
-            "source_filename": source_name,
-            "raw_text": transcript,
-            "raw_path": str(raw_path.relative_to(ROOT_DIR)),
-            "summary_path": str(summary_path.relative_to(ROOT_DIR)),
-            "flow_path": str(flow_path.relative_to(ROOT_DIR)),
-            "markdown": markdown,
-            "flow_text": flow_text,
-            "key_summary": key_summary,
-            "decisions": decisions,
-            "risks": risks,
-            "next_actions": next_actions,
-            "action_items": action_items,
-            "search_text": search_text,
-            "error_message": error_message,
-            "source_type": "web_recording" if relative_audio_path else "txt",
-            "meeting_start_time": time_meta["meeting_start_time"],
-            "meeting_end_time": time_meta["meeting_end_time"],
-            "duration_seconds": time_meta["duration_seconds"],
-            "audio_path": relative_audio_path,
-            "transcript_path": relative_transcript_path,
-        }
-    )
+    record = {
+        "file_hash": file_hash,
+        "title": title,
+        "meeting_date": meeting_date,
+        "meeting_time": meeting_time,
+        "status": status,
+        "source_filename": source_name,
+        "raw_text": transcript,
+        "raw_path": str(raw_path.relative_to(ROOT_DIR)),
+        "summary_path": str(summary_path.relative_to(ROOT_DIR)),
+        "flow_path": str(flow_path.relative_to(ROOT_DIR)),
+        "markdown": markdown,
+        "flow_text": flow_text,
+        "key_summary": key_summary,
+        "decisions": decisions,
+        "risks": risks,
+        "next_actions": next_actions,
+        "action_items": action_items,
+        "search_text": search_text,
+        "error_message": error_message,
+        "source_type": source_type or ("web_recording" if relative_audio_path else "txt"),
+        "meeting_start_time": time_meta["meeting_start_time"],
+        "meeting_end_time": time_meta["meeting_end_time"],
+        "duration_seconds": time_meta["duration_seconds"],
+        "audio_path": relative_audio_path,
+        "transcript_path": relative_transcript_path,
+    }
+    print(f"[DB] 저장 시작: {source_name} / status={status}", flush=True)
+    try:
+        meeting_id = save_meeting(record)
+    except Exception as exc:
+        print(f"[ERROR] DB 저장 실패: {source_name} / {exc}", flush=True)
+        raise
     print(f"[DB] 저장 완료: meeting #{meeting_id} / status={status}", flush=True)
     return meeting_id
 

@@ -186,9 +186,15 @@ def save_meeting(record: dict[str, Any]) -> int:
         "source_filename": record.get("source_filename", ""),
     }
 
-    with get_connection() as conn:
-        with conn.cursor() as cursor:
-            cursor.execute(
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cursor:
+                print(
+                    f"[DB] insert 시작: {values['source_filename']} / "
+                    f"status={values['status']}",
+                    flush=True,
+                )
+                cursor.execute(
                 """
                 INSERT INTO meetings (
                     file_hash, title, meeting_date, meeting_start_time, meeting_end_time,
@@ -227,26 +233,32 @@ def save_meeting(record: dict[str, Any]) -> int:
                     error_message=VALUES(error_message),
                     source_filename=VALUES(source_filename)
                 """,
-                values,
-            )
-            cursor.execute(
-                "SELECT id FROM meetings WHERE file_hash = %(file_hash)s",
-                {"file_hash": values["file_hash"]},
-            )
-            meeting_id = int(cursor.fetchone()["id"])
+                    values,
+                )
+                cursor.execute(
+                    "SELECT id FROM meetings WHERE file_hash = %(file_hash)s",
+                    {"file_hash": values["file_hash"]},
+                )
+                meeting_id = int(cursor.fetchone()["id"])
 
-            cursor.execute(
-                "DELETE FROM meeting_action_items WHERE meeting_id = %(meeting_id)s",
-                {"meeting_id": meeting_id},
-            )
-            _insert_action_items(cursor, meeting_id, record.get("action_items", []))
+                cursor.execute(
+                    "DELETE FROM meeting_action_items WHERE meeting_id = %(meeting_id)s",
+                    {"meeting_id": meeting_id},
+                )
+                _insert_action_items(cursor, meeting_id, record.get("action_items", []))
 
-            cursor.execute(
-                "DELETE FROM meeting_files WHERE meeting_id = %(meeting_id)s",
-                {"meeting_id": meeting_id},
-            )
-            _insert_files(cursor, meeting_id, record)
-        conn.commit()
+                cursor.execute(
+                    "DELETE FROM meeting_files WHERE meeting_id = %(meeting_id)s",
+                    {"meeting_id": meeting_id},
+                )
+                _insert_files(cursor, meeting_id, record)
+            conn.commit()
+    except Exception as exc:
+        print(
+            f"[ERROR] MySQL insert 실패: {values['source_filename']} / {exc}",
+            flush=True,
+        )
+        raise
     return meeting_id
 
 

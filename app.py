@@ -11,7 +11,9 @@ from dotenv import load_dotenv
 from flask import Flask, jsonify, request, send_from_directory
 from werkzeug.utils import secure_filename
 
+from app_helpers import is_short_test_transcript
 from database import delete_meeting, get_meeting, init_db, list_meetings
+from recovery import recover_recordings
 from summarizer import process_transcript_text, process_txt_file
 from transcriber import AUDIO_DIR, TRANSCRIPT_DIR, transcribe_audio
 from watcher import INPUT_DIR, process_existing_files, start_watcher
@@ -84,6 +86,12 @@ def api_process_file():
     return jsonify({"ok": True, "id": meeting_id})
 
 
+@app.post("/api/recover-recordings")
+def api_recover_recordings():
+    stats = recover_recordings()
+    return jsonify({"ok": True, **stats})
+
+
 @app.post("/api/recordings")
 def api_recording_upload():
     if "audio" not in request.files:
@@ -116,11 +124,31 @@ def api_recording_upload():
 
         if is_short_test_transcript(transcript):
             print("[RECORDING] 짧은 테스트 녹음으로 회의록 생성 건너뜀", flush=True)
+            try:
+                meeting_id = process_transcript_text(
+                    transcript=transcript,
+                    source_name=transcript_path.name,
+                    source_path=transcript_path,
+                    title_seed=f"웹 녹음 회의 {timestamp}",
+                    file_hash_seed=f"recording:{audio_name}",
+                    meeting_start_time=started_at,
+                    meeting_end_time=ended_at,
+                    duration_seconds=duration_seconds,
+                    audio_path=audio_path,
+                    transcript_path=transcript_path,
+                    source_type="web_recording",
+                    skip_summary_reason="회의 내용이 너무 짧아 회의록을 생성하지 않았습니다.",
+                )
+                print(f"[RECORDING] skipped row 저장 완료: meeting #{meeting_id}", flush=True)
+            except Exception as exc:
+                print(f"[ERROR] skipped row 저장 실패: {exc}", flush=True)
+                raise
             return jsonify(
                 {
                     "ok": True,
                     "skipped": True,
                     "message": "회의 내용이 너무 짧아 회의록을 생성하지 않았습니다.",
+                    "id": meeting_id,
                     "audio_path": str(audio_path.relative_to(ROOT_DIR)),
                     "transcript_path": str(transcript_path.relative_to(ROOT_DIR)),
                 }
@@ -137,6 +165,7 @@ def api_recording_upload():
             duration_seconds=duration_seconds,
             audio_path=audio_path,
             transcript_path=transcript_path,
+            source_type="web_recording",
         )
         print(f"[RECORDING] 회의록 생성 완료: meeting #{meeting_id}", flush=True)
         return jsonify(
@@ -150,35 +179,6 @@ def api_recording_upload():
     except Exception as exc:
         print(f"[ERROR] 녹음 처리 실패: {exc}", flush=True)
         return jsonify({"error": str(exc)}), 500
-
-
-def is_short_test_transcript(transcript: str) -> bool:
-    normalized = "".join(ch for ch in transcript.lower() if ch.isalnum() or ch.isspace())
-    words = normalized.split()
-    compact = "".join(words)
-    if len(compact) < 30:
-        return True
-
-    test_phrases = [
-        "아아테스트테스트",
-        "마이크테스트",
-        "하나둘셋",
-        "들리나요",
-        "테스트테스트",
-        "아아",
-    ]
-    if compact in test_phrases:
-        return True
-
-    meaningful_words = {
-        word for word in words
-        if word not in {"아", "아아", "어", "음", "테스트", "마이크", "하나", "둘", "셋", "들리나요"}
-    }
-    if not meaningful_words and len(words) <= 12:
-        return True
-
-    unique_words = set(words)
-    return len(unique_words) <= 2 and len(words) <= 12
 
 
 def _parse_int(value: str | None) -> int | None:
@@ -221,10 +221,19 @@ def main() -> None:
         help="input/clova_txt 안의 기존 TXT를 한 번 처리",
     )
     parser.add_argument("--no-web", action="store_true", help="웹 서버 실행 안 함")
+    parser.add_argument(
+        "--recover-recordings",
+        action="store_true",
+        help="storage/audio와 storage/transcripts를 스캔해 누락된 MySQL row를 복구",
+    )
     args = parser.parse_args()
 
     watch_enabled = not args.no_watch
 
+    if args.recover_recordings:
+        recover_recordings()
+        if args.no_web:
+            return
     if args.process_existing:
         process_existing_files()
     if args.no_web:

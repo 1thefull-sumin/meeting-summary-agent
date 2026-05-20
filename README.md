@@ -298,6 +298,20 @@ Content-Type: multipart/form-data
 audio=<녹음 파일>
 ```
 
+누락된 녹음 회의록 복구:
+
+```text
+POST /api/recover-recordings
+```
+
+CLI로도 복구할 수 있습니다.
+
+```bash
+python app.py --recover-recordings --no-web
+```
+
+복구 기능은 `storage/audio/`와 `storage/transcripts/`를 스캔해 같은 파일명 stem을 가진 녹음 파일과 전사 TXT를 매칭합니다. 전사 TXT 내용은 `raw_text`로 MySQL에 저장하고, 가능한 경우 GPT 요약을 다시 실행합니다. 요약이 실패하면 `pending` 상태로 row를 남깁니다. 테스트 발화처럼 너무 짧은 전사는 `skipped` 상태로 저장합니다.
+
 ## 회의록 출력 포맷
 
 OpenAI API에는 아래 Markdown 구조를 지키도록 요청합니다.
