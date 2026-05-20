@@ -196,7 +196,8 @@ async function renderDetail() {
 function statusLabel(status) {
   if (status === "done") return "요약 완료";
   if (status === "pending") return "요약 대기";
-  if (status === "failed") return "실패";
+  if (status === "error") return "오류";
+  if (status === "skipped") return "생성 안 함";
   return status || "-";
 }
 

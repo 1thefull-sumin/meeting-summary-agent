@@ -1,6 +1,6 @@
 # meeting-summary-agent
 
-네이버 클로바노트 TXT 파일을 자동 감지하거나, 웹에서 직접 회의를 녹음해 OpenAI API로 회의록을 생성하는 에이전트입니다. 결과는 Markdown 파일과 SQLite DB에 저장되고, 웹 화면에서 검색, 캘린더, 상세 회의록, 액션 아이템, Flow 공유 문구를 확인할 수 있습니다.
+네이버 클로바노트 TXT 파일을 자동 감지하거나, 웹에서 직접 회의를 녹음해 OpenAI API로 회의록을 생성하는 에이전트입니다. 결과는 Markdown 파일과 MySQL DB에 저장되고, 웹 화면에서 검색, 캘린더, 상세 회의록, 액션 아이템, Flow 공유 문구를 확인할 수 있습니다.
 
 이 프로젝트는 새로 만든 독립 프로젝트입니다. 기존 회의록 프로젝트의 코드, 폴더, DB를 사용하지 않습니다.
 
@@ -28,8 +28,7 @@ meeting-summary-agent/
     audio/
     transcripts/
 
-  data/
-    meetings.db
+  schema.sql
 
   web/
     index.html
@@ -44,7 +43,7 @@ meeting-summary-agent/
 3. 녹음 파일은 `storage/audio/`, 전사 텍스트는 `storage/transcripts/`에 저장됩니다.
 4. OpenAI STT가 음성을 텍스트로 변환하고, `summarizer.py`가 회의록 Markdown을 생성합니다.
 5. 원문은 `storage/raw/`, 요약본은 `storage/summaries/`, Flow 공유문은 `storage/flow/`에 저장됩니다.
-6. 회의록 메타데이터와 본문은 `data/meetings.db` SQLite DB에 저장됩니다.
+6. 회의록 메타데이터와 본문은 MySQL `MEETING_AGENT_DEV` DB에 저장됩니다.
 7. 웹 화면은 Flask API에서 DB 데이터를 불러와 목록, 검색, 캘린더, 상세 화면을 표시합니다.
 8. 회의록 상세 화면에서 삭제하면 DB 행과 관련 저장 파일이 함께 삭제됩니다.
 
@@ -88,7 +87,39 @@ OPENAI_MODEL=gpt-4o-mini
 OPENAI_STT_MODEL=whisper-1
 FLASK_HOST=127.0.0.1
 FLASK_PORT=5000
+MYSQL_HOST=127.0.0.1
+MYSQL_PORT=3306
+MYSQL_USER=root
+MYSQL_PASSWORD=
+MYSQL_DATABASE=MEETING_AGENT_DEV
 ```
+
+## MySQL 설정
+
+Sequel Ace에서 로컬 MySQL에 접속한 뒤 [schema.sql](/Users/1thefull/Desktop/에이전트/meeting-summary-agent/schema.sql)의 전체 SQL을 실행합니다.
+
+실행되는 주요 작업:
+
+```sql
+CREATE DATABASE IF NOT EXISTS MEETING_AGENT_DEV
+  CHARACTER SET utf8mb4
+  COLLATE utf8mb4_unicode_ci;
+
+USE MEETING_AGENT_DEV;
+
+CREATE TABLE meetings (...);
+CREATE TABLE meeting_action_items (...);
+CREATE TABLE meeting_files (...);
+```
+
+테이블 관계:
+
+- `meeting_action_items.meeting_id`는 `meetings.id`를 참조합니다.
+- `meeting_files.meeting_id`는 `meetings.id`를 참조합니다.
+- 회의록 삭제 시 action item과 file row는 `ON DELETE CASCADE`로 같이 삭제됩니다.
+- 실제 파일은 Flask 삭제 API에서 `storage/` 아래 파일을 같이 지웁니다.
+
+MySQL 문자셋은 `utf8mb4`, 시간 기준은 애플리케이션에서 `Asia/Seoul`로 처리합니다. DB 연결마다 `SET time_zone = '+09:00'`을 실행합니다.
 
 ## 실행 방법
 
@@ -297,8 +328,8 @@ OpenAI API에는 아래 Markdown 구조를 지키도록 요청합니다.
 
 ## 주의사항
 
-- `data/meetings.db`가 실제 DB입니다.
+- `MEETING_AGENT_DEV` MySQL DB가 실제 DB입니다. SQLite `data/meetings.db`는 더 이상 사용하지 않습니다.
 - 웹 화면은 하드코딩 데이터가 아니라 Flask API를 통해 DB 데이터를 불러옵니다.
 - 같은 파일명과 같은 원문 내용은 같은 해시로 인식되어 DB에서 업데이트됩니다.
-- API 키가 없으면 웹 녹음의 음성 전사를 만들 수 없습니다. TXT 처리의 경우 요약 실패 시에도 `pending` 상태로 DB에 저장됩니다.
+- API 키가 없으면 웹 녹음의 음성 전사를 만들 수 없습니다. TXT 처리의 경우 요약 실패 시에도 `error` 상태와 `error_message`를 MySQL에 저장합니다.
 - 사내 회의록에는 민감한 내용이 포함될 수 있으므로 `.env`, `data/`, `storage/`는 외부 저장소에 공개하지 않는 것을 권장합니다.

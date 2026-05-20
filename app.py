@@ -21,7 +21,7 @@ ROOT_DIR = Path(__file__).resolve().parent
 WEB_DIR = ROOT_DIR / "web"
 KST = ZoneInfo("Asia/Seoul")
 
-load_dotenv(ROOT_DIR / ".env")
+load_dotenv(ROOT_DIR / ".env", override=True)
 init_db()
 
 app = Flask(__name__, static_folder=str(WEB_DIR), static_url_path="")
@@ -43,7 +43,7 @@ def api_list_meetings():
         ]
     if status == "actions":
         items = [item for item in items if item["has_action_items"]]
-    elif status in {"done", "pending", "failed"}:
+    elif status in {"pending", "done", "error", "skipped"}:
         items = [item for item in items if item["status"] == status]
     return jsonify(items)
 

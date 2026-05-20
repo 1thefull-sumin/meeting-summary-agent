@@ -83,6 +83,7 @@ def process_transcript_text(
     print(f"[SUMMARY] 원문 저장 완료: {raw_path}", flush=True)
 
     status = "done"
+    error_message = ""
     try:
         if not transcript:
             raise RuntimeError("빈 TXT 파일입니다.")
@@ -90,8 +91,9 @@ def process_transcript_text(
         markdown = summarize_with_openai(source_name, transcript)
         print(f"[SUMMARY] 요약 완료: {source_name}", flush=True)
     except Exception as exc:
-        status = "pending"
-        print(f"[ERROR] 요약 실패, pending 저장으로 전환: {source_name} / {exc}", flush=True)
+        status = "error"
+        error_message = str(exc)
+        print(f"[ERROR] 요약 실패, error 저장으로 전환: {source_name} / {exc}", flush=True)
         markdown = build_pending_markdown(
             title=title_seed,
             meeting_date=meeting_date,
@@ -137,6 +139,7 @@ def process_transcript_text(
             "meeting_time": meeting_time,
             "status": status,
             "source_filename": source_name,
+            "raw_text": transcript,
             "raw_path": str(raw_path.relative_to(ROOT_DIR)),
             "summary_path": str(summary_path.relative_to(ROOT_DIR)),
             "flow_path": str(flow_path.relative_to(ROOT_DIR)),
@@ -148,6 +151,8 @@ def process_transcript_text(
             "next_actions": next_actions,
             "action_items": action_items,
             "search_text": search_text,
+            "error_message": error_message,
+            "source_type": "web_recording" if relative_audio_path else "txt",
             "meeting_start_time": time_meta["meeting_start_time"],
             "meeting_end_time": time_meta["meeting_end_time"],
             "duration_seconds": time_meta["duration_seconds"],
