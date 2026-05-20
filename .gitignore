@@ -4,14 +4,32 @@ __pycache__/
 *.pyc
 
 data/*.db
+input/clova_txt/*
+input/clova_audio/*
 storage/raw/*
 storage/summaries/*
 storage/flow/*
 storage/audio/*
 storage/transcripts/*
+storage/temp_audio/*
+storage/error_logs/*
+storage/trash/*
 
 !storage/raw/.gitkeep
 !storage/summaries/.gitkeep
 !storage/flow/.gitkeep
 !storage/audio/.gitkeep
 !storage/transcripts/.gitkeep
+!storage/temp_audio/.gitkeep
+!storage/error_logs/.gitkeep
+!storage/trash/.gitkeep
+!input/clova_txt/.gitkeep
+!input/clova_txt/processed/
+!input/clova_txt/processed/.gitkeep
+!input/clova_txt/failed/
+!input/clova_txt/failed/.gitkeep
+!input/clova_audio/.gitkeep
+!input/clova_audio/processed/
+!input/clova_audio/processed/.gitkeep
+!input/clova_audio/failed/
+!input/clova_audio/failed/.gitkeep

@@ -45,6 +45,7 @@ def process_transcript_text(
     source_path: str | Path | None = None,
     title_seed: str | None = None,
     file_hash_seed: str | None = None,
+    file_hash_override: str = "",
     meeting_start_time: str = "",
     meeting_end_time: str = "",
     duration_seconds: int | None = None,
@@ -56,7 +57,7 @@ def process_transcript_text(
 ) -> int:
     transcript = transcript.strip()
     title_seed = title_seed or Path(source_name).stem
-    file_hash = _hash_text((file_hash_seed or source_name) + "\n" + transcript)
+    file_hash = file_hash_override or _hash_text((file_hash_seed or source_name) + "\n" + transcript)
     meeting_date = _extract_date_from_text(source_name, transcript, source_path)
     meeting_time = _extract_time(source_name + "\n" + transcript)
     time_meta = _build_time_metadata(
@@ -172,6 +173,11 @@ def process_transcript_text(
         "duration_seconds": time_meta["duration_seconds"],
         "audio_path": relative_audio_path,
         "transcript_path": relative_transcript_path,
+        "upload_status": "done" if relative_audio_path or source_type == "txt" else "",
+        "stt_status": "done" if relative_transcript_path or source_type == "txt" else "pending",
+        "summary_status": status,
+        "db_status": "done",
+        "last_error": error_message,
     }
     print(f"[DB] 저장 시작: {source_name} / status={status}", flush=True)
     try:

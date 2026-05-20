@@ -310,7 +310,93 @@ CLI로도 복구할 수 있습니다.
 python app.py --recover-recordings --no-web
 ```
 
-복구 기능은 `storage/audio/`와 `storage/transcripts/`를 스캔해 같은 파일명 stem을 가진 녹음 파일과 전사 TXT를 매칭합니다. 전사 TXT 내용은 `raw_text`로 MySQL에 저장하고, 가능한 경우 GPT 요약을 다시 실행합니다. 요약이 실패하면 `pending` 상태로 row를 남깁니다. 테스트 발화처럼 너무 짧은 전사는 `skipped` 상태로 저장합니다.
+복구 기능은 `storage/temp_audio/`, `storage/audio/`, `storage/transcripts/`, `storage/summaries/`, MySQL 상태를 비교합니다. 브라우저가 강제 종료되어 `temp_audio`에 chunk만 남은 경우 먼저 `storage/audio/`의 원본 파일로 조립한 뒤 STT와 요약을 다시 시도합니다. 전사 TXT 내용은 `raw_text`로 MySQL에 저장하고, 가능한 경우 GPT 요약을 다시 실행합니다. 요약이 실패하면 `pending` 상태로 row를 남깁니다. 테스트 발화처럼 너무 짧은 전사는 `skipped` 상태로 저장합니다.
+
+## 녹음 유실 방지 구조
+
+- 녹음 시작 즉시 서버가 `storage/temp_audio/<recording_id>/` 세션을 만들고 브라우저가 약 5초 단위 chunk를 업로드합니다.
+- 녹음 종료 시 서버는 chunk를 합쳐 `storage/audio/YYYYMMDD_HHMMSS_meeting_uuid.webm` 원본 파일을 먼저 저장합니다.
+- 원본 audio 저장 직후 MySQL `meetings`에 `status='uploaded'` row를 먼저 생성합니다.
+- 이후 STT, GPT 요약, Markdown/Flow 저장을 진행합니다.
+- STT 실패 시에도 `storage/audio/` 원본은 삭제하지 않고 `stt_status='error'`, `summary_status='pending'`, `last_error`를 남깁니다.
+- GPT 실패 시에도 audio/transcript는 유지하고 `summary_status='error'` 또는 `pending` 상태로 복구 가능하게 둡니다.
+- DB 저장 실패는 `storage/error_logs/failed_meetings.jsonl`에 실패 시간, 파일명, 오류 내용을 JSONL로 기록합니다.
+- 삭제 버튼은 DB row를 `status='deleted'`로 바꾸는 soft delete입니다. 원본 audio는 자동 삭제하지 않으며 `deleted_at`, `trash_until`로 휴지통 보관 기간을 기록합니다.
+
+새로 추가된 `meetings` 상태 컬럼:
+
+```text
+upload_status
+stt_status
+summary_status
+db_status
+last_error
+retry_count
+deleted_at
+trash_until
+```
+
+기존 DB를 쓰고 있다면 서버 시작 시 자동 migration이 실행됩니다. Sequel Ace에서 직접 반영하려면 최신 `schema.sql`의 `meetings` 컬럼 정의를 확인해 적용하세요.
+
+## 클로바노트 TXT + audio 자동 등록
+
+클로바노트에서 받은 TXT와 녹음 파일을 아래 폴더에 넣으면 watcher가 자동으로 회의록을 생성합니다.
+
+```text
+input/clova_txt/
+input/clova_audio/
+```
+
+같은 파일명 stem을 자동 매칭합니다.
+
+```text
+input/clova_txt/회의1.txt
+input/clova_audio/회의1.m4a
+```
+
+지원 audio 포맷:
+
+```text
+mp3, m4a, wav, webm
+```
+
+처리 방식:
+
+```text
+TXT + audio: TXT를 transcript로 사용하고 audio_path도 함께 저장
+TXT만 있음: TXT만으로 요약/DB 저장
+audio만 있음: Whisper STT로 transcript 생성 후 요약/DB 저장
+```
+
+중복 방지는 TXT/audio 파일 내용을 기준으로 만든 `sha256` hash를 사용합니다. 같은 파일을 다시 넣으면 새 row를 계속 늘리지 않고 같은 hash 기준으로 업데이트됩니다.
+
+처리 후 원본 입력 파일은 자동 이동됩니다.
+
+```text
+input/clova_txt/processed/
+input/clova_audio/processed/
+
+input/clova_txt/failed/
+input/clova_audio/failed/
+```
+
+서버 실행:
+
+```bash
+cd /Users/1thefull/Desktop/에이전트/meeting-summary-agent
+.venv/bin/python app.py
+```
+
+서버 시작 시 `input/clova_txt/`, `input/clova_audio/` 안에 이미 들어 있는 파일도 한 번 확인합니다. 새 파일을 넣으면 터미널에 `[WATCHER]`, `[CLOVA]`, `[STT]`, `[SUMMARY]`, `[DB]` 로그가 순서대로 표시됩니다.
+
+웹 상세 화면에서는 저장된 회의록마다 다음을 확인할 수 있습니다.
+
+```text
+원본 audio 재생
+transcript 원문 보기
+Markdown 회의록 보기
+Flow 공유 문구 보기
+```
 
 ## 회의록 출력 포맷
 

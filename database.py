@@ -10,10 +10,13 @@ import pymysql
 from dotenv import load_dotenv
 from pymysql.cursors import DictCursor
 
+from failure_log import write_failure_log
+
 
 ROOT_DIR = Path(__file__).resolve().parent
 _LOGGED_CONFIG = False
 _LOGGED_SERVER = False
+PROCESS_STATUSES = {"pending", "done", "error", "skipped"}
 
 
 def get_connection():
@@ -36,7 +39,7 @@ def get_connection():
 
 
 def _mysql_config() -> dict[str, Any]:
-    load_dotenv(ROOT_DIR / ".env", override=True)
+    load_dotenv(ROOT_DIR / ".env")
     database = os.getenv("MYSQL_DATABASE") or "MEETING_AGENT_DEV"
     if not re.fullmatch(r"[A-Za-z0-9_]+", database):
         raise RuntimeError("MYSQL_DATABASE는 영문, 숫자, underscore만 사용할 수 있습니다.")
@@ -129,7 +132,13 @@ def init_db() -> None:
                     meeting_start_time CHAR(5) DEFAULT '',
                     meeting_end_time CHAR(5) DEFAULT '',
                     duration_seconds INT UNSIGNED NULL,
-                    status ENUM('pending','done','error','skipped') NOT NULL DEFAULT 'pending',
+                    status ENUM('uploaded','pending','done','error','skipped','deleted') NOT NULL DEFAULT 'pending',
+                    upload_status VARCHAR(30) DEFAULT '',
+                    stt_status VARCHAR(30) DEFAULT '',
+                    summary_status VARCHAR(30) DEFAULT '',
+                    db_status VARCHAR(30) DEFAULT '',
+                    last_error TEXT,
+                    retry_count INT UNSIGNED NOT NULL DEFAULT 0,
                     summary MEDIUMTEXT,
                     decisions MEDIUMTEXT,
                     risks MEDIUMTEXT,
@@ -145,6 +154,8 @@ def init_db() -> None:
                     tags JSON NULL,
                     error_message TEXT,
                     source_filename VARCHAR(255) DEFAULT '',
+                    deleted_at DATETIME NULL,
+                    trash_until DATETIME NULL,
                     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                     PRIMARY KEY (id),
@@ -154,6 +165,7 @@ def init_db() -> None:
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
                 """
             )
+            _migrate_meetings(cursor)
             cursor.execute(
                 """
                 CREATE TABLE IF NOT EXISTS meeting_action_items (
@@ -192,8 +204,45 @@ def init_db() -> None:
         conn.commit()
 
 
+def _migrate_meetings(cursor) -> None:
+    cursor.execute(
+        "ALTER TABLE meetings MODIFY status "
+        "ENUM('uploaded','pending','done','error','skipped','deleted') "
+        "NOT NULL DEFAULT 'pending'"
+    )
+    columns = {
+        "upload_status": "VARCHAR(30) DEFAULT ''",
+        "stt_status": "VARCHAR(30) DEFAULT ''",
+        "summary_status": "VARCHAR(30) DEFAULT ''",
+        "db_status": "VARCHAR(30) DEFAULT ''",
+        "last_error": "TEXT",
+        "retry_count": "INT UNSIGNED NOT NULL DEFAULT 0",
+        "deleted_at": "DATETIME NULL",
+        "trash_until": "DATETIME NULL",
+    }
+    for column, definition in columns.items():
+        _ensure_column(cursor, "meetings", column, definition)
+
+
+def _ensure_column(cursor, table: str, column: str, definition: str) -> None:
+    cursor.execute(
+        """
+        SELECT COUNT(*) AS count
+        FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = %(table)s
+          AND COLUMN_NAME = %(column)s
+        """,
+        {"table": table, "column": column},
+    )
+    if cursor.fetchone()["count"]:
+        return
+    cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+
 def save_meeting(record: dict[str, Any]) -> int:
     status = _normalize_status(record.get("status"))
+    error_message = record.get("error_message", "")
     values = {
         "file_hash": record["file_hash"],
         "title": record.get("title", "회의록"),
@@ -202,6 +251,12 @@ def save_meeting(record: dict[str, Any]) -> int:
         "meeting_end_time": record.get("meeting_end_time", ""),
         "duration_seconds": record.get("duration_seconds"),
         "status": status,
+        "upload_status": record.get("upload_status", _default_upload_status(record)),
+        "stt_status": record.get("stt_status", _default_stt_status(record)),
+        "summary_status": record.get("summary_status", _default_summary_status(status)),
+        "db_status": record.get("db_status", "done"),
+        "last_error": record.get("last_error", error_message),
+        "retry_count": int(record.get("retry_count", 0) or 0),
         "summary": record.get("key_summary", ""),
         "decisions": record.get("decisions", ""),
         "risks": record.get("risks", ""),
@@ -215,7 +270,7 @@ def save_meeting(record: dict[str, Any]) -> int:
         "uploaded_by": record.get("uploaded_by", ""),
         "meeting_type": record.get("meeting_type", ""),
         "tags": json.dumps(record.get("tags", []), ensure_ascii=False),
-        "error_message": record.get("error_message", ""),
+        "error_message": error_message,
         "source_filename": record.get("source_filename", ""),
     }
 
@@ -231,13 +286,16 @@ def save_meeting(record: dict[str, Any]) -> int:
                 """
                 INSERT INTO meetings (
                     file_hash, title, meeting_date, meeting_start_time, meeting_end_time,
-                    duration_seconds, status, summary, decisions, risks, next_actions,
+                    duration_seconds, status, upload_status, stt_status, summary_status,
+                    db_status, last_error, retry_count, summary, decisions, risks, next_actions,
                     flow_message, raw_text, markdown_path, audio_path, transcript_path,
                     source_type, uploaded_by, meeting_type, tags, error_message,
                     source_filename
                 ) VALUES (
                     %(file_hash)s, %(title)s, %(meeting_date)s, %(meeting_start_time)s,
-                    %(meeting_end_time)s, %(duration_seconds)s, %(status)s, %(summary)s,
+                    %(meeting_end_time)s, %(duration_seconds)s, %(status)s,
+                    %(upload_status)s, %(stt_status)s, %(summary_status)s,
+                    %(db_status)s, %(last_error)s, %(retry_count)s, %(summary)s,
                     %(decisions)s, %(risks)s, %(next_actions)s, %(flow_message)s,
                     %(raw_text)s, %(markdown_path)s, %(audio_path)s, %(transcript_path)s,
                     %(source_type)s, %(uploaded_by)s, %(meeting_type)s, %(tags)s,
@@ -250,6 +308,12 @@ def save_meeting(record: dict[str, Any]) -> int:
                     meeting_end_time=VALUES(meeting_end_time),
                     duration_seconds=VALUES(duration_seconds),
                     status=VALUES(status),
+                    upload_status=VALUES(upload_status),
+                    stt_status=VALUES(stt_status),
+                    summary_status=VALUES(summary_status),
+                    db_status=VALUES(db_status),
+                    last_error=VALUES(last_error),
+                    retry_count=GREATEST(meetings.retry_count, VALUES(retry_count)),
                     summary=VALUES(summary),
                     decisions=VALUES(decisions),
                     risks=VALUES(risks),
@@ -292,8 +356,79 @@ def save_meeting(record: dict[str, Any]) -> int:
             f"[ERROR] MySQL insert 실패: {values['source_filename']} / {exc}",
             flush=True,
         )
+        write_failure_log(
+            event="mysql_save_failed",
+            file_name=values["source_filename"],
+            error=str(exc),
+            extra={
+                "audio_path": values.get("audio_path", ""),
+                "transcript_path": values.get("transcript_path", ""),
+                "status": values.get("status", ""),
+            },
+        )
         raise
     return meeting_id
+
+
+def create_uploaded_meeting(record: dict[str, Any]) -> int:
+    uploaded = {
+        **record,
+        "status": record.get("status", "uploaded"),
+        "key_summary": record.get("key_summary", ""),
+        "decisions": record.get("decisions", ""),
+        "risks": record.get("risks", ""),
+        "next_actions": record.get("next_actions", ""),
+        "flow_text": record.get("flow_text", ""),
+        "raw_text": record.get("raw_text", ""),
+        "summary_path": record.get("summary_path", ""),
+        "transcript_path": record.get("transcript_path", ""),
+        "upload_status": record.get("upload_status", "done"),
+        "stt_status": record.get("stt_status", "pending"),
+        "summary_status": record.get("summary_status", "pending"),
+        "db_status": record.get("db_status", "done"),
+        "last_error": record.get("last_error", ""),
+        "action_items": record.get("action_items", []),
+    }
+    return save_meeting(uploaded)
+
+
+def update_meeting_processing_state(
+    meeting_id: int,
+    *,
+    status: str | None = None,
+    upload_status: str | None = None,
+    stt_status: str | None = None,
+    summary_status: str | None = None,
+    db_status: str | None = None,
+    last_error: str | None = None,
+    retry_increment: bool = False,
+) -> None:
+    fields: list[str] = []
+    values: dict[str, Any] = {"meeting_id": meeting_id}
+    for name, value in {
+        "status": status,
+        "upload_status": upload_status,
+        "stt_status": stt_status,
+        "summary_status": summary_status,
+        "db_status": db_status,
+        "last_error": last_error,
+        "error_message": last_error,
+    }.items():
+        if value is None:
+            continue
+        fields.append(f"{name} = %({name})s")
+        values[name] = value
+    if retry_increment:
+        fields.append("retry_count = retry_count + 1")
+    if not fields:
+        return
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                f"UPDATE meetings SET {', '.join(fields)} WHERE id = %(meeting_id)s",
+                values,
+            )
+        conn.commit()
 
 
 def _log_save_verification(conn, meeting_id: int) -> None:
@@ -331,6 +466,7 @@ def list_meetings() -> list[dict[str, Any]]:
                 """
                 SELECT *
                 FROM meetings
+                WHERE status <> 'deleted'
                 ORDER BY meeting_date DESC, updated_at DESC
                 """
             )
@@ -385,7 +521,10 @@ def log_database_debug_info(prefix: str = "[DB]") -> dict[str, Any]:
 def get_meeting(meeting_id: int) -> dict[str, Any] | None:
     with get_connection() as conn:
         with conn.cursor() as cursor:
-            cursor.execute("SELECT * FROM meetings WHERE id = %(id)s", {"id": meeting_id})
+            cursor.execute(
+                "SELECT * FROM meetings WHERE id = %(id)s AND status <> 'deleted'",
+                {"id": meeting_id},
+            )
             row = cursor.fetchone()
             if not row:
                 return None
@@ -401,16 +540,24 @@ def delete_meeting(meeting_id: int) -> bool:
             row = cursor.fetchone()
             if not row:
                 return False
-            files = _fetch_files(cursor, [meeting_id]).get(meeting_id, [])
-            cursor.execute("DELETE FROM meetings WHERE id = %(id)s", {"id": meeting_id})
+            cursor.execute(
+                """
+                UPDATE meetings
+                SET status = 'deleted',
+                    deleted_at = NOW(),
+                    trash_until = DATE_ADD(NOW(), INTERVAL 7 DAY),
+                    last_error = '',
+                    error_message = ''
+                WHERE id = %(id)s
+                """,
+                {"id": meeting_id},
+            )
         conn.commit()
-
-    paths = {file["file_path"] for file in files}
-    for field in ("markdown_path", "audio_path", "transcript_path"):
-        if row.get(field):
-            paths.add(row[field])
-    for path_value in paths:
-        _delete_project_file(path_value)
+    print(
+        f"[DB] soft delete 완료: meeting #{meeting_id} / "
+        "원본 파일은 삭제하지 않고 휴지통 보관 상태로 유지합니다.",
+        flush=True,
+    )
     return True
 
 
@@ -531,6 +678,12 @@ def _row_to_dict(
         "duration_seconds": row.get("duration_seconds"),
         "duration_label": _format_duration(row.get("duration_seconds")),
         "status": row.get("status") or "pending",
+        "upload_status": row.get("upload_status") or "",
+        "stt_status": row.get("stt_status") or "",
+        "summary_status": row.get("summary_status") or "",
+        "db_status": row.get("db_status") or "",
+        "last_error": row.get("last_error") or "",
+        "retry_count": row.get("retry_count") or 0,
         "source_filename": row.get("source_filename") or Path(raw_path).name,
         "key_summary": row.get("summary") or "",
         "decisions": row.get("decisions") or "",
@@ -558,6 +711,8 @@ def _row_to_dict(
                 "meeting_type": row.get("meeting_type") or "",
                 "tags": _loads_json(row.get("tags"), []),
                 "error_message": row.get("error_message") or "",
+                "deleted_at": _format_datetime(row.get("deleted_at")),
+                "trash_until": _format_datetime(row.get("trash_until")),
                 "files": files,
             }
         )
@@ -648,11 +803,29 @@ def _format_datetime(value: Any) -> str:
 
 
 def _normalize_status(status: str | None) -> str:
-    if status in {"pending", "done", "error", "skipped"}:
+    if status in {"uploaded", "pending", "done", "error", "skipped", "deleted"}:
         return status
     if status == "failed":
         return "error"
     return "pending"
+
+
+def _default_upload_status(record: dict[str, Any]) -> str:
+    return "done" if record.get("audio_path") or record.get("raw_path") else ""
+
+
+def _default_stt_status(record: dict[str, Any]) -> str:
+    if record.get("source_type") == "txt" or record.get("raw_path") and not record.get("audio_path"):
+        return "not_required"
+    return "done" if record.get("transcript_path") or record.get("raw_text") else "pending"
+
+
+def _default_summary_status(status: str) -> str:
+    if status in PROCESS_STATUSES:
+        return status
+    if status == "uploaded":
+        return "pending"
+    return ""
 
 
 def _infer_source_type(record: dict[str, Any]) -> str:

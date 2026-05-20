@@ -43,6 +43,19 @@
       </div>
     </section>
 
+    <section class="recoveryPanel">
+      <div>
+        <span class="badge">복구 가능한 녹음</span>
+        <h2>녹음 복구</h2>
+        <p id="recoveryStatus">audio, transcript, summary, DB 상태를 비교해 누락된 회의록을 복구합니다.</p>
+      </div>
+      <div class="recorderControls">
+        <button class="recordButton secondary recoveryAction" data-action="stt" type="button">다시 STT</button>
+        <button class="recordButton secondary recoveryAction" data-action="summary" type="button">다시 요약</button>
+        <button class="recordButton secondary recoveryAction" data-action="db" type="button">DB 다시 저장</button>
+      </div>
+    </section>
+
     <section class="workspace">
       <aside class="leftPanel">
         <section class="calendarPanel">

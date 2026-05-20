@@ -22,9 +22,14 @@ const recordingTimer = document.querySelector("#recordingTimer");
 const startRecording = document.querySelector("#startRecording");
 const stopRecording = document.querySelector("#stopRecording");
 const resetRecording = document.querySelector("#resetRecording");
+const recoveryStatus = document.querySelector("#recoveryStatus");
+const recoveryActions = Array.from(document.querySelectorAll(".recoveryAction"));
 
 let mediaRecorder = null;
 let recordingChunks = [];
+let pendingChunkUploads = [];
+let recordingSessionId = "";
+let recordingChunkSequence = 0;
 let recordingStartedAt = 0;
 let recordingStartedAtIso = "";
 let recordingEndedAtIso = "";
@@ -177,13 +182,31 @@ async function renderDetail() {
         <span><b>회의 길이</b>${escapeHtml(item.duration_label || "-")}</span>
         <span><b>원본</b>${escapeHtml(item.source_filename)}</span>
         <span><b>상태</b>${escapeHtml(statusLabel(item.status))}</span>
+        <span><b>업로드</b>${escapeHtml(item.upload_status || "-")}</span>
+        <span><b>STT</b>${escapeHtml(item.stt_status || "-")}</span>
+        <span><b>요약</b>${escapeHtml(item.summary_status || "-")}</span>
+        <span><b>재시도</b>${escapeHtml(item.retry_count || 0)}</span>
         <span><b>Markdown</b>${escapeHtml(item.summary_path || "-")}</span>
         <span><b>Flow 공유문</b>${escapeHtml(item.flow_path || "-")}</span>
       </div>
+      ${item.last_error ? `<p class="errorText">${escapeHtml(item.last_error)}</p>` : ""}
       <div class="detailActions">
         <button class="deleteButton" data-delete-id="${item.id}" type="button">삭제</button>
       </div>
     </div>
+    ${item.audio_path ? `
+      <section class="section">
+        <h3>원본 audio</h3>
+        <audio class="audioPlayer" controls src="${mediaUrl(item.audio_path)}"></audio>
+      </section>
+    ` : ""}
+    <section class="section">
+      <h3>transcript</h3>
+      <details class="transcriptBox">
+        <summary>원문 보기</summary>
+        <pre>${escapeHtml(item.raw_text || "저장된 transcript가 없습니다.")}</pre>
+      </details>
+    </section>
     <section class="section finalMarkdown">${markdownToHtml(item.markdown || "")}</section>
     <section class="section">
       <h3>Flow 공유 문구</h3>
@@ -193,7 +216,12 @@ async function renderDetail() {
   detail.querySelector(".deleteButton")?.addEventListener("click", () => deleteMeeting(item.id));
 }
 
+function mediaUrl(path) {
+  return `/media/${String(path || "").split("/").map(encodeURIComponent).join("/")}`;
+}
+
 function statusLabel(status) {
+  if (status === "uploaded") return "업로드 완료";
   if (status === "done") return "요약 완료";
   if (status === "pending") return "요약 대기";
   if (status === "error") return "오류";
@@ -326,24 +354,31 @@ async function beginRecording() {
     const mimeType = chooseMimeType();
     mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
     recordingChunks = [];
+    pendingChunkUploads = [];
+    recordingChunkSequence = 0;
     recordingStartedAtIso = new Date().toISOString();
     recordingEndedAtIso = "";
+    const session = await startRecordingSession(recordingStartedAtIso);
+    recordingSessionId = session.recording_id;
 
     mediaRecorder.addEventListener("dataavailable", event => {
-      if (event.data && event.data.size > 0) recordingChunks.push(event.data);
+      if (!event.data || event.data.size <= 0) return;
+      recordingChunks.push(event.data);
+      pendingChunkUploads.push(uploadRecordingChunk(event.data, recordingChunkSequence));
+      recordingChunkSequence += 1;
     });
     mediaRecorder.addEventListener("stop", () => {
       stream.getTracks().forEach(track => track.stop());
-      uploadRecording(mimeType || mediaRecorder.mimeType || "audio/webm");
+      finishRecording();
     });
 
-    mediaRecorder.start();
+    mediaRecorder.start(5000);
     recordingStartedAt = Date.now();
     recordingTimerId = window.setInterval(updateRecordingTimer, 500);
     updateRecordingTimer();
     startRecording.disabled = true;
     stopRecording.disabled = false;
-    setRecordingState("녹음 중", "회의를 녹음하고 있습니다.");
+    setRecordingState("● 녹음 중", "녹음 원본을 임시 저장소에 계속 보존하고 있습니다.");
   } catch (error) {
     setRecordingState("오류", `마이크 권한 또는 녹음 시작 실패: ${error.message}`);
   }
@@ -353,7 +388,8 @@ function endRecording() {
   if (!mediaRecorder || mediaRecorder.state === "inactive") return;
   recordingEndedAtIso = new Date().toISOString();
   stopRecording.disabled = true;
-  setRecordingState("업로드 준비", "녹음을 종료하고 음성 파일을 준비합니다.");
+  setRecordingState("● 업로드 완료 준비", "마지막 녹음 조각을 저장하고 원본 audio를 확정합니다.");
+  mediaRecorder.requestData();
   mediaRecorder.stop();
   if (recordingTimerId) {
     window.clearInterval(recordingTimerId);
@@ -361,35 +397,62 @@ function endRecording() {
   }
 }
 
-async function uploadRecording(mimeType) {
-  try {
-    const extension = mimeType.includes("mp4") ? "mp4" : mimeType.includes("ogg") ? "ogg" : "webm";
-    const blob = new Blob(recordingChunks, { type: mimeType });
-    const formData = new FormData();
-    formData.append("audio", blob, `browser-recording.${extension}`);
-    formData.append("started_at", recordingStartedAtIso);
-    formData.append("ended_at", recordingEndedAtIso || new Date().toISOString());
-    formData.append("duration_seconds", String(Math.max(0, Math.round((Date.parse(recordingEndedAtIso) - Date.parse(recordingStartedAtIso)) / 1000))));
+async function startRecordingSession(startedAt) {
+  const response = await fetch("/api/recordings/start", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ started_at: startedAt })
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.error || "녹음 세션 생성에 실패했습니다.");
+  return payload;
+}
 
-    setRecordingState("처리 중", "음성 업로드, 텍스트 변환, 회의록 요약을 진행하고 있습니다.");
-    const response = await fetch("/api/recordings", {
+async function uploadRecordingChunk(blob, sequence) {
+  if (!recordingSessionId) return;
+  const formData = new FormData();
+  formData.append("recording_id", recordingSessionId);
+  formData.append("sequence", String(sequence));
+  formData.append("chunk", blob, `chunk-${sequence}.webm`);
+  const response = await fetch("/api/recordings/chunk", {
+    method: "POST",
+    body: formData
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(payload.error || "녹음 chunk 임시 저장에 실패했습니다.");
+  }
+}
+
+async function finishRecording() {
+  try {
+    await Promise.all(pendingChunkUploads);
+    setRecordingState("● 업로드 완료", "원본 audio 저장을 확정하고 DB uploaded row를 생성합니다.");
+    const response = await fetch("/api/recordings/finish", {
       method: "POST",
-      body: formData
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        recording_id: recordingSessionId,
+        started_at: recordingStartedAtIso,
+        ended_at: recordingEndedAtIso || new Date().toISOString(),
+        duration_seconds: Math.max(0, Math.round((Date.parse(recordingEndedAtIso) - Date.parse(recordingStartedAtIso)) / 1000))
+      })
     });
+    setRecordingState("● STT 처리 중", "음성을 텍스트로 변환하고 GPT 요약을 이어서 진행합니다.");
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
       throw new Error(payload.error || "녹음 처리에 실패했습니다.");
     }
 
     if (payload.skipped) {
-      setRecordingState("생성 안 함", payload.message || "회의 내용이 너무 짧아 회의록을 생성하지 않았습니다.");
+      setRecordingState("● 오류 발생", payload.message || "회의 내용이 너무 짧아 회의록을 생성하지 않았습니다.");
       startRecording.disabled = false;
       stopRecording.disabled = true;
       scheduleRecordingReset();
       return;
     }
 
-    setRecordingState("완료", "전사와 요약이 완료되었습니다. 목록을 새로고침합니다.");
+    setRecordingState("● DB 저장 완료", "회의록 저장이 완료되었습니다. 목록을 새로고침합니다.");
     startRecording.disabled = false;
     stopRecording.disabled = true;
     await loadMeetings();
@@ -399,7 +462,7 @@ async function uploadRecording(mimeType) {
     render();
     scheduleRecordingReset();
   } catch (error) {
-    setRecordingState("오류", error.message);
+    setRecordingState("● 오류 발생", `${error.message} 원본 audio 또는 temp_audio를 확인해 복구할 수 있습니다.`);
     startRecording.disabled = false;
     stopRecording.disabled = true;
   }
@@ -441,6 +504,9 @@ function resetRecordingState() {
     recordingTimerId = null;
   }
   recordingChunks = [];
+  pendingChunkUploads = [];
+  recordingSessionId = "";
+  recordingChunkSequence = 0;
   recordingStartedAt = 0;
   recordingStartedAtIso = "";
   recordingEndedAtIso = "";
@@ -456,11 +522,36 @@ function scheduleRecordingReset() {
   recordingResetTimerId = window.setTimeout(resetRecordingState, 3000);
 }
 
+async function runRecovery(action) {
+  recoveryActions.forEach(button => { button.disabled = true; });
+  recoveryStatus.textContent = `${actionLabel(action)} 작업을 시작했습니다. 서버 로그에서 세부 단계를 확인할 수 있습니다.`;
+  try {
+    const response = await fetch("/api/recover-recordings", { method: "POST" });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || "복구 작업에 실패했습니다.");
+    recoveryStatus.textContent = `복구 완료: 확인 ${payload.checked || 0}개, 저장 ${payload.saved || 0}개, STT 재시도 ${payload.stt_retried || 0}개, 실패 ${payload.failed || 0}개`;
+    await loadMeetings();
+  } catch (error) {
+    recoveryStatus.textContent = `복구 실패: ${error.message}`;
+  } finally {
+    recoveryActions.forEach(button => { button.disabled = false; });
+  }
+}
+
+function actionLabel(action) {
+  if (action === "stt") return "다시 STT";
+  if (action === "summary") return "다시 요약";
+  return "DB 다시 저장";
+}
+
 search.addEventListener("input", render);
 refresh.addEventListener("click", loadMeetings);
 startRecording.addEventListener("click", beginRecording);
 stopRecording.addEventListener("click", endRecording);
 resetRecording.addEventListener("click", resetRecordingState);
+recoveryActions.forEach(button => {
+  button.addEventListener("click", () => runRecovery(button.dataset.action));
+});
 filters.forEach(button => {
   button.addEventListener("click", () => {
     filters.forEach(item => item.classList.remove("active"));
