@@ -1,0 +1,534 @@
+:root {
+  --bg: #f3f6fb;
+  --panel: #fff;
+  --ink: #0d1b33;
+  --muted: #63708a;
+  --line: #d7e0ef;
+  --blue: #2f66e8;
+  --blue-soft: #eaf1ff;
+  --gray-soft: #f7f9fc;
+  --ok: #0f766e;
+  --risk: #e11d48;
+  --shadow: 0 16px 42px rgba(20, 34, 60, .08);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: Arial, "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+  line-height: 1.6;
+}
+
+button, input { font: inherit; }
+
+.app {
+  width: min(1600px, calc(100% - 64px));
+  margin: 0 auto;
+  padding: 38px 0 54px;
+}
+
+.header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 24px;
+}
+
+.badge {
+  display: inline-flex;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--blue-soft);
+  color: #1d4ca6;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+h1 {
+  margin: 12px 0 4px;
+  font-size: 32px;
+  letter-spacing: 0;
+}
+
+p { margin: 0; color: var(--muted); }
+
+.stats, .toolbar, .recorderPanel, .calendarPanel, .listPanel, .detailPanel {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
+.stats {
+  min-width: 142px;
+  padding: 16px;
+  text-align: right;
+}
+
+.stats strong {
+  display: block;
+  color: var(--blue);
+  font-size: 30px;
+  line-height: 1;
+}
+
+.stats span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.toolbar {
+  display: flex;
+  gap: 10px;
+  padding: 16px;
+  margin-bottom: 22px;
+}
+
+input {
+  flex: 1;
+  min-width: 220px;
+  min-height: 44px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 16px;
+}
+
+.filter, .monthButton {
+  min-height: 44px;
+  padding: 9px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: #24324a;
+  cursor: pointer;
+}
+
+.filter.active {
+  border-color: var(--blue);
+  background: var(--blue);
+  color: #fff;
+}
+
+.recorderPanel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 18px 20px;
+  margin-bottom: 22px;
+}
+
+.recorderPanel h2 {
+  margin: 8px 0 4px;
+  font-size: 22px;
+  letter-spacing: 0;
+}
+
+.recorderControls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.recorderControls strong {
+  min-width: 78px;
+  color: var(--blue);
+  font-size: 28px;
+  line-height: 1;
+  text-align: right;
+}
+
+.recordButton {
+  min-height: 44px;
+  padding: 9px 16px;
+  border: 1px solid var(--blue);
+  border-radius: 8px;
+  background: var(--blue);
+  color: #fff;
+  cursor: pointer;
+}
+
+.recordButton.stop {
+  border-color: var(--risk);
+  background: var(--risk);
+}
+
+.recordButton.secondary {
+  border-color: var(--line);
+  background: #fff;
+  color: #24324a;
+}
+
+.recordButton:disabled {
+  border-color: var(--line);
+  background: var(--gray-soft);
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+.workspace {
+  display: grid;
+  grid-template-columns: minmax(360px, 430px) minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.leftPanel {
+  position: sticky;
+  top: 18px;
+}
+
+.calendarPanel {
+  padding: 18px;
+  margin-bottom: 14px;
+}
+
+.calendarHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.calendarHead h2 {
+  margin: 0;
+  font-size: 22px;
+  text-align: center;
+}
+
+.calendarHead p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+  text-align: center;
+}
+
+.weekdays, .calendarGrid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 8px;
+}
+
+.weekdays {
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.calendarCell {
+  min-height: 58px;
+  padding: 7px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.calendarCell.hasMeeting {
+  border-color: #bcd2ff;
+  background: #fbfdff;
+}
+
+.calendarCell.noMeeting {
+  color: #94a3b8;
+  background: #fafcff;
+}
+
+.calendarCell.selectedDate {
+  border-color: var(--blue);
+  background: var(--blue-soft);
+  box-shadow: inset 0 0 0 2px var(--blue);
+}
+
+.emptyCell {
+  background: transparent;
+  border-color: transparent;
+  cursor: default;
+}
+
+.dayNumber {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  font-weight: 800;
+}
+
+.selectedDate .dayNumber {
+  background: var(--blue);
+  color: #fff;
+}
+
+.meetingCount {
+  display: inline-flex;
+  margin-top: 7px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--blue-soft);
+  color: #1d4ca6;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.panelHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--line);
+}
+
+.panelHead h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.panelHead span {
+  color: var(--muted);
+}
+
+.meetingList {
+  max-height: 44vh;
+  overflow: auto;
+  padding: 16px;
+}
+
+.meetingCard {
+  display: block;
+  width: 100%;
+  margin: 8px 0;
+  padding: 15px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  text-align: left;
+  cursor: pointer;
+}
+
+.meetingCard.selected {
+  border-color: var(--blue);
+  background: var(--blue-soft);
+  box-shadow: inset 4px 0 0 var(--blue);
+}
+
+.cardTitle {
+  display: block;
+  color: var(--ink);
+  font-size: 16px;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.cardMeta, .cardSummary {
+  display: block;
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.tagRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.tagRow em {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--gray-soft);
+  color: #40516b;
+  font-size: 12px;
+  font-style: normal;
+}
+
+.detail {
+  width: min(920px, 100%);
+  margin: 0 auto;
+  padding: 28px;
+}
+
+.detailTop h2 {
+  margin: 12px 0 18px;
+  font-size: 30px;
+  line-height: 1.22;
+  letter-spacing: 0;
+  overflow-wrap: anywhere;
+}
+
+.detailActions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+.deleteButton {
+  min-height: 40px;
+  padding: 8px 14px;
+  border: 1px solid #fecdd3;
+  border-radius: 8px;
+  background: #fff1f2;
+  color: var(--risk);
+  cursor: pointer;
+}
+
+.metaGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  padding: 16px;
+  border-radius: 8px;
+  background: var(--gray-soft);
+}
+
+.metaGrid span {
+  color: var(--muted);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.metaGrid b {
+  display: block;
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.section {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.mdTitle {
+  margin: 0 0 18px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--line);
+  font-size: 28px;
+  line-height: 1.25;
+}
+
+.mdSection {
+  margin: 16px 0;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  overflow-wrap: anywhere;
+}
+
+.highlightSection {
+  border-color: #cfe0ff;
+  border-left: 5px solid var(--blue);
+  background: #fbfdff;
+}
+
+.riskSection {
+  border-color: #fecdd3;
+  border-left: 5px solid var(--risk);
+  background: #fff1f2;
+}
+
+.taskSection { background: #f8fbff; }
+
+.flowBox, pre {
+  margin: 16px 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fafc;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #fff;
+}
+
+th, td {
+  padding: 11px 10px;
+  border: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+
+th {
+  background: #eef4ff;
+  color: #24324a;
+  font-size: 13px;
+}
+
+.tableWrap {
+  width: 100%;
+  overflow-x: auto;
+  margin: 10px 0 4px;
+}
+
+.empty {
+  padding: 28px;
+  color: var(--muted);
+  text-align: center;
+}
+
+@media (max-width: 900px) {
+  .app {
+    width: min(100% - 24px, 1600px);
+    padding-top: 22px;
+  }
+
+  .header, .toolbar, .recorderPanel, .calendarHead {
+    flex-wrap: wrap;
+  }
+
+  .recorderControls {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .recorderControls strong {
+    text-align: left;
+  }
+
+  .stats {
+    width: 100%;
+    text-align: left;
+  }
+
+  .workspace {
+    display: block;
+  }
+
+  .leftPanel {
+    position: static;
+  }
+
+  .meetingList {
+    max-height: none;
+  }
+
+  .detail {
+    padding: 20px 16px;
+  }
+
+  .metaGrid {
+    grid-template-columns: 1fr;
+  }
+}

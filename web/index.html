@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>회의록 요약 에이전트</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main class="app">
+    <header class="header">
+      <div>
+        <span class="badge">meeting-summary-agent</span>
+        <h1>회의록 요약 에이전트</h1>
+        <p>클로바노트 TXT를 감지해 GPT 요약, DB 저장, Flow 공유문까지 자동으로 정리합니다.</p>
+      </div>
+      <div class="stats">
+        <strong id="totalCount">0</strong>
+        <span>등록된 회의록</span>
+      </div>
+    </header>
+
+    <section class="toolbar">
+      <input id="search" type="search" placeholder="제목, 날짜, 파일명, 결정사항, 액션 아이템 검색">
+      <button class="filter active" data-filter="all" type="button">전체</button>
+      <button class="filter" data-filter="done" type="button">완료</button>
+      <button class="filter" data-filter="pending" type="button">요약 대기</button>
+      <button class="filter" data-filter="actions" type="button">액션 포함</button>
+      <button id="refresh" class="filter" type="button">새로고침</button>
+    </section>
+
+    <section class="recorderPanel">
+      <div>
+        <span class="badge" id="recordingBadge">녹음 대기</span>
+        <h2>웹 녹음 회의록</h2>
+        <p id="recordingStatus">브라우저 마이크로 회의를 녹음하고 바로 회의록을 생성합니다.</p>
+      </div>
+      <div class="recorderControls">
+        <strong id="recordingTimer">00:00</strong>
+        <button id="startRecording" class="recordButton" type="button">녹음 시작</button>
+        <button id="stopRecording" class="recordButton stop" type="button" disabled>녹음 종료</button>
+        <button id="resetRecording" class="recordButton secondary" type="button">상태 초기화</button>
+      </div>
+    </section>
+
+    <section class="workspace">
+      <aside class="leftPanel">
+        <section class="calendarPanel">
+          <div class="calendarHead">
+            <button id="prevMonth" class="monthButton" type="button">이전</button>
+            <div>
+              <h2 id="calendarTitle">-</h2>
+              <p id="calendarSubtitle">회의록이 있는 날짜를 선택하세요.</p>
+            </div>
+            <button id="nextMonth" class="monthButton" type="button">다음</button>
+          </div>
+          <div class="weekdays">
+            <span>일</span><span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span>토</span>
+          </div>
+          <div id="calendarGrid" class="calendarGrid"></div>
+        </section>
+
+        <section class="listPanel">
+          <div class="panelHead">
+            <h2 id="selectedDateTitle">회의록 목록</h2>
+            <span id="visibleCount">0건</span>
+          </div>
+          <div id="meetingList" class="meetingList"></div>
+        </section>
+      </aside>
+
+      <section class="detailPanel">
+        <div id="detail" class="detail"></div>
+      </section>
+    </section>
+  </main>
+  <script src="/script.js"></script>
+</body>
+</html>

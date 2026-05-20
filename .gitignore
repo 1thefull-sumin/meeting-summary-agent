@@ -1,0 +1,17 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+
+data/*.db
+storage/raw/*
+storage/summaries/*
+storage/flow/*
+storage/audio/*
+storage/transcripts/*
+
+!storage/raw/.gitkeep
+!storage/summaries/.gitkeep
+!storage/flow/.gitkeep
+!storage/audio/.gitkeep
+!storage/transcripts/.gitkeep
