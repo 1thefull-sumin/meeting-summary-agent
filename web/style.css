@@ -198,6 +198,17 @@ input {
   font-weight: 700;
 }
 
+.warningText {
+  display: inline-flex;
+  margin-top: 12px;
+  padding: 6px 10px;
+  border: 1px solid #facc15;
+  border-radius: 8px;
+  background: #fef9c3;
+  color: #854d0e;
+  font-weight: 800;
+}
+
 .audioPlayer {
   width: 100%;
   margin-top: 8px;

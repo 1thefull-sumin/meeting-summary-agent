@@ -9,7 +9,7 @@ from app_helpers import is_short_test_transcript
 from database import create_uploaded_meeting, log_database_debug_info, update_meeting_processing_state
 from failure_log import write_failure_log
 from summarizer import ROOT_DIR, process_transcript_text
-from transcriber import AUDIO_DIR, TRANSCRIPT_DIR, transcribe_audio
+from transcriber import AUDIO_DIR, TRANSCRIPT_DIR, transcribe_audio_with_metadata
 
 
 AUDIO_EXTENSIONS = {".webm", ".mp4", ".m4a", ".mp3", ".wav", ".ogg"}
@@ -57,6 +57,7 @@ def recover_recordings() -> dict[str, int]:
         stats["checked"] += 1
         audio_path = audio_by_stem.get(stem)
         transcript_path = transcripts_by_stem.get(stem)
+        transcript_quality = ""
         print(
             f"[RECOVER] 상태 비교: {stem} / "
             f"audio={bool(audio_path)} transcript={bool(transcript_path)} summary={stem in summaries_by_stem}",
@@ -83,12 +84,18 @@ def recover_recordings() -> dict[str, int]:
             if not transcript_path and audio_path:
                 print(f"[RECOVER] 전사 파일 없음, 다시 STT: {audio_path.name}", flush=True)
                 try:
-                    transcript = transcribe_audio(audio_path)
+                    transcription = transcribe_audio_with_metadata(audio_path)
+                    transcript = transcription.text
+                    transcript_quality = transcription.quality
                     transcript_path = TRANSCRIPT_DIR / f"{stem}.txt"
                     transcript_path.write_text(transcript, encoding="utf-8")
                     stats["stt_retried"] += 1
                     if uploaded_id:
-                        update_meeting_processing_state(uploaded_id, stt_status="done")
+                        update_meeting_processing_state(
+                            uploaded_id,
+                            stt_status="done",
+                            transcript_quality=transcription.quality,
+                        )
                 except Exception as exc:
                     if uploaded_id:
                         update_meeting_processing_state(
@@ -106,6 +113,8 @@ def recover_recordings() -> dict[str, int]:
                 continue
 
             transcript = transcript_path.read_text(encoding="utf-8").strip()
+            if not transcript_quality:
+                transcript_quality = "unknown"
             print(f"[RECOVER] DB 저장 시작: {transcript_path.name}", flush=True)
             reason = ""
             if is_short_test_transcript(transcript):
@@ -122,6 +131,7 @@ def recover_recordings() -> dict[str, int]:
                 transcript_path=transcript_path,
                 source_type="web_recording",
                 summary_error_status="pending",
+                transcript_quality=transcript_quality,
                 skip_summary_reason=reason,
             )
             stats["saved"] += 1

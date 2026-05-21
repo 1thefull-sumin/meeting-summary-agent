@@ -10,7 +10,7 @@ from app_helpers import is_short_test_transcript
 from database import create_uploaded_meeting, update_meeting_processing_state
 from failure_log import write_failure_log
 from summarizer import ROOT_DIR, process_transcript_text
-from transcriber import AUDIO_DIR, TRANSCRIPT_DIR, transcribe_audio
+from transcriber import AUDIO_DIR, TRANSCRIPT_DIR, transcribe_audio_with_metadata
 
 
 INPUT_ROOT = ROOT_DIR / "input"
@@ -74,6 +74,7 @@ def process_clova_files(txt_path: Path | None, audio_path: Path | None) -> int:
     file_hash = _content_hash(txt_path, audio_path)
     stored_audio_path = _store_audio(audio_path) if audio_path else None
     transcript_path = None
+    transcript_quality = "provided" if txt_path else ""
     uploaded_meeting_id = None
 
     if audio_path and not txt_path:
@@ -99,7 +100,9 @@ def process_clova_files(txt_path: Path | None, audio_path: Path | None) -> int:
     else:
         print(f"[CLOVA] audio-only STT 시작: {audio_path.name}", flush=True)
         try:
-            transcript = transcribe_audio(stored_audio_path)
+            transcription = transcribe_audio_with_metadata(stored_audio_path)
+            transcript = transcription.text
+            transcript_quality = transcription.quality
         except Exception as exc:
             if uploaded_meeting_id:
                 update_meeting_processing_state(
@@ -114,7 +117,10 @@ def process_clova_files(txt_path: Path | None, audio_path: Path | None) -> int:
         TRANSCRIPT_DIR.mkdir(parents=True, exist_ok=True)
         transcript_path = TRANSCRIPT_DIR / f"{stored_audio_path.stem}.txt"
         transcript_path.write_text(transcript, encoding="utf-8")
-        print(f"[CLOVA] audio-only 전사 저장 완료: {transcript_path}", flush=True)
+        print(
+            f"[CLOVA] audio-only 전사 저장 완료: {transcript_path} / quality={transcript_quality}",
+            flush=True,
+        )
         source_name = transcript_path.name
         source_path = transcript_path
         title_seed = audio_path.stem
@@ -143,6 +149,7 @@ def process_clova_files(txt_path: Path | None, audio_path: Path | None) -> int:
         audio_path=stored_audio_path,
         transcript_path=transcript_path,
         source_type="clova",
+        transcript_quality=transcript_quality,
         skip_summary_reason=reason,
     )
 

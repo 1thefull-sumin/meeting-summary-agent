@@ -6,6 +6,7 @@ import json
 import os
 import shutil
 import threading
+import traceback
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -28,7 +29,7 @@ from database import (
 from failure_log import write_failure_log
 from recovery import recover_recordings
 from summarizer import process_transcript_text, process_txt_file
-from transcriber import AUDIO_DIR, TRANSCRIPT_DIR, transcribe_audio
+from transcriber import AUDIO_DIR, TRANSCRIPT_DIR, transcribe_audio_with_metadata
 from watcher import INPUT_DIR, process_existing_files, start_watcher
 
 
@@ -174,14 +175,28 @@ def api_recording_upload():
 
 @app.post("/api/recordings/start")
 def api_recording_start():
+    recording_id = ""
+    audio_name = ""
+    session_dir = None
     try:
+        print(f"[RECORDING] start 요청 수신: temp_root={TEMP_AUDIO_DIR}", flush=True)
+        print("[RECORDING] temp_audio 폴더 생성 확인 시작", flush=True)
         TEMP_AUDIO_DIR.mkdir(parents=True, exist_ok=True)
+        print(f"[RECORDING] temp_audio 폴더 준비 완료: {TEMP_AUDIO_DIR}", flush=True)
+        print("[RECORDING] storage/audio 폴더 생성 확인 시작", flush=True)
         AUDIO_DIR.mkdir(parents=True, exist_ok=True)
+        print(f"[RECORDING] storage/audio 폴더 준비 완료: {AUDIO_DIR}", flush=True)
+        print("[RECORDING] recording_id 생성 시작", flush=True)
         recording_id = uuid.uuid4().hex
+        print(f"[RECORDING] recording_id 생성 완료: {recording_id}", flush=True)
         timestamp = datetime.now(KST).strftime("%Y%m%d_%H%M%S")
+        print("[RECORDING] audio_name 생성 시작", flush=True)
         audio_name = f"{timestamp}_meeting_{recording_id}.webm"
+        print(f"[RECORDING] audio_name 생성 완료: {audio_name}", flush=True)
         session_dir = TEMP_AUDIO_DIR / recording_id
+        print(f"[RECORDING] 세션 폴더 생성 시작: {session_dir}", flush=True)
         session_dir.mkdir(parents=True, exist_ok=True)
+        print(f"[RECORDING] 세션 폴더 생성 완료: {session_dir}", flush=True)
         payload = request.get_json(silent=True) or {}
         meta = {
             "recording_id": recording_id,
@@ -191,10 +206,12 @@ def api_recording_start():
             "started_at": payload.get("started_at", ""),
             "status": "recording",
         }
+        print(f"[RECORDING] meta 저장 시작: {session_dir / 'meta.json'}", flush=True)
         (session_dir / "meta.json").write_text(
             json.dumps(meta, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+        print(f"[RECORDING] meta 저장 완료: {session_dir / 'meta.json'}", flush=True)
         print(f"[RECORDING] 임시 녹음 세션 생성: {recording_id} / {audio_name}", flush=True)
         return jsonify(
             {
@@ -206,17 +223,28 @@ def api_recording_start():
         )
     except Exception as exc:
         print(f"[RECORDING] start 실패 사유: {exc}", flush=True)
-        write_failure_log(
-            event="recording_start_failed",
-            file_name="recording_start",
-            error=str(exc),
-            extra={"temp_audio_dir": str(TEMP_AUDIO_DIR)},
-        )
+        print("[RECORDING] start traceback:", flush=True)
+        print(traceback.format_exc(), flush=True)
+        try:
+            write_failure_log(
+                event="recording_start_failed",
+                file_name=audio_name or "recording_start",
+                error=str(exc),
+                extra={
+                    "temp_audio_dir": str(TEMP_AUDIO_DIR),
+                    "session_dir": str(session_dir or ""),
+                    "recording_id": recording_id,
+                },
+            )
+        except Exception as log_exc:
+            print(f"[RECORDING] start 실패 로그 기록도 실패: {log_exc}", flush=True)
+            print(traceback.format_exc(), flush=True)
         return jsonify(
             {
                 "error": "서버 문제로 녹음 임시 저장소를 만들지 못했습니다.",
                 "error_type": "server",
                 "detail": str(exc),
+                "failed_path": str(session_dir or TEMP_AUDIO_DIR),
             }
         ), 500
 
@@ -318,11 +346,19 @@ def _create_uploaded_then_process(
     transcript_path = TRANSCRIPT_DIR / f"{Path(audio_name).stem}.txt"
     try:
         print("[STT] 처리 중", flush=True)
-        transcript = transcribe_audio(audio_path)
+        transcription = transcribe_audio_with_metadata(audio_path)
+        transcript = transcription.text
         TRANSCRIPT_DIR.mkdir(parents=True, exist_ok=True)
         transcript_path.write_text(transcript, encoding="utf-8")
-        update_meeting_processing_state(meeting_id, stt_status="done")
-        print(f"[STT] 텍스트 저장 완료: {transcript_path}", flush=True)
+        update_meeting_processing_state(
+            meeting_id,
+            stt_status="done",
+            transcript_quality=transcription.quality,
+        )
+        print(
+            f"[STT] 텍스트 저장 완료: {transcript_path} / quality={transcription.quality}",
+            flush=True,
+        )
     except Exception as exc:
         print(f"[ERROR] STT 실패, audio는 유지: {exc}", flush=True)
         update_meeting_processing_state(
@@ -360,6 +396,7 @@ def _create_uploaded_then_process(
         audio_path=audio_path,
         transcript_path=transcript_path,
         source_type="web_recording",
+        transcript_quality=transcription.quality,
         skip_summary_reason=reason,
     )
     print(f"[DB] 저장 완료: meeting #{meeting_id}", flush=True)

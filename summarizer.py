@@ -54,6 +54,7 @@ def process_transcript_text(
     source_type: str = "",
     summary_error_status: str = "error",
     skip_summary_reason: str = "",
+    transcript_quality: str = "",
 ) -> int:
     transcript = transcript.strip()
     title_seed = title_seed or Path(source_name).stem
@@ -104,7 +105,14 @@ def process_transcript_text(
             if not transcript:
                 raise RuntimeError("빈 TXT 파일입니다.")
             print(f"[SUMMARY] 요약 시작: {source_name}", flush=True)
-            markdown = summarize_with_openai(source_name, transcript)
+            markdown = summarize_with_openai(
+                source_name,
+                transcript,
+                meeting_date=meeting_date,
+                meeting_time=meeting_time,
+                meeting_start_time=time_meta["meeting_start_time"],
+                meeting_end_time=time_meta["meeting_end_time"],
+            )
             print(f"[SUMMARY] 요약 완료: {source_name}", flush=True)
         except Exception as exc:
             status = summary_error_status
@@ -118,6 +126,11 @@ def process_transcript_text(
                 transcript=transcript,
             )
 
+    markdown = ensure_meeting_info_metadata(
+        markdown=markdown,
+        meeting_date=meeting_date,
+        meeting_time=meeting_time,
+    )
     flow_text = extract_section(markdown, "Flow 공유용 요약") or build_flow_fallback(markdown)
 
     summary_path.write_text(markdown, encoding="utf-8")
@@ -175,6 +188,7 @@ def process_transcript_text(
         "transcript_path": relative_transcript_path,
         "upload_status": "done" if relative_audio_path or source_type == "txt" else "",
         "stt_status": "done" if relative_transcript_path or source_type == "txt" else "pending",
+        "transcript_quality": transcript_quality,
         "summary_status": status,
         "db_status": "done",
         "last_error": error_message,
@@ -189,7 +203,14 @@ def process_transcript_text(
     return meeting_id
 
 
-def summarize_with_openai(file_name: str, transcript: str) -> str:
+def summarize_with_openai(
+    file_name: str,
+    transcript: str,
+    meeting_date: str = "",
+    meeting_time: str = "",
+    meeting_start_time: str = "",
+    meeting_end_time: str = "",
+) -> str:
     load_dotenv(ROOT_DIR / ".env")
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
@@ -203,7 +224,17 @@ def summarize_with_openai(file_name: str, transcript: str) -> str:
         model=model,
         messages=[
             {"role": "system", "content": SUMMARY_SYSTEM_PROMPT},
-            {"role": "user", "content": build_summary_prompt(file_name, transcript)},
+            {
+                "role": "user",
+                "content": build_summary_prompt(
+                    file_name=file_name,
+                    transcript=transcript,
+                    meeting_date=meeting_date,
+                    meeting_time=meeting_time,
+                    meeting_start_time=meeting_start_time,
+                    meeting_end_time=meeting_end_time,
+                ),
+            },
         ],
         temperature=0.2,
     )
@@ -211,6 +242,20 @@ def summarize_with_openai(file_name: str, transcript: str) -> str:
     if not content:
         raise RuntimeError("OpenAI API가 빈 응답을 반환했습니다.")
     return content.strip()
+
+
+def ensure_meeting_info_metadata(markdown: str, meeting_date: str, meeting_time: str) -> str:
+    date_value = meeting_date or "확인 필요"
+    time_value = meeting_time or "확인 필요"
+    replacement = f"## 회의 정보\n- 날짜: {date_value}\n- 시간: {time_value}"
+    pattern = r"^##\s+회의 정보\s*$[\s\S]*?(?=^##\s+|\Z)"
+    if re.search(pattern, markdown, re.MULTILINE):
+        return re.sub(pattern, replacement + "\n\n", markdown, count=1, flags=re.MULTILINE).strip()
+    title_match = re.search(r"^#\s+.+$", markdown, re.MULTILINE)
+    if title_match:
+        insert_at = title_match.end()
+        return (markdown[:insert_at] + "\n\n" + replacement + markdown[insert_at:]).strip()
+    return (replacement + "\n\n" + markdown).strip()
 
 
 def extract_section(markdown: str, heading: str) -> str:

@@ -216,12 +216,14 @@ async function renderDetail() {
         <span><b>상태</b>${escapeHtml(statusLabel(item.status))}</span>
         <span><b>업로드</b>${escapeHtml(item.upload_status || "-")}</span>
         <span><b>STT</b>${escapeHtml(item.stt_status || "-")}</span>
+        <span><b>전사 품질</b>${escapeHtml(transcriptQualityLabel(item.transcript_quality))}</span>
         <span><b>요약</b>${escapeHtml(item.summary_status || "-")}</span>
         <span><b>재시도</b>${escapeHtml(item.retry_count || 0)}</span>
         <span><b>Markdown</b>${escapeHtml(item.summary_path || "-")}</span>
         <span><b>Flow 공유문</b>${escapeHtml(item.flow_path || "-")}</span>
       </div>
       ${item.last_error ? `<p class="errorText">${escapeHtml(item.last_error)}</p>` : ""}
+      ${item.transcript_low_quality ? '<p class="warningText">전사 품질 낮음</p>' : ""}
       <div class="detailActions">
         <button class="deleteButton" data-delete-id="${item.id}" type="button">삭제</button>
       </div>
@@ -255,6 +257,14 @@ function statusLabel(status) {
   if (status === "error") return "오류";
   if (status === "skipped") return "생성 안 함";
   return status || "-";
+}
+
+function transcriptQualityLabel(quality) {
+  if (quality === "low") return "낮음";
+  if (quality === "ok") return "양호";
+  if (quality === "provided") return "클로바 TXT";
+  if (quality === "unknown") return "확인 필요";
+  return quality || "-";
 }
 
 function meetingTimeLabel(item) {

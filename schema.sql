@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS meetings (
   status ENUM('uploaded','pending','done','error','skipped','deleted') NOT NULL DEFAULT 'pending',
   upload_status VARCHAR(30) DEFAULT '',
   stt_status VARCHAR(30) DEFAULT '',
+  transcript_quality VARCHAR(30) DEFAULT '',
   summary_status VARCHAR(30) DEFAULT '',
   db_status VARCHAR(30) DEFAULT '',
   last_error TEXT,

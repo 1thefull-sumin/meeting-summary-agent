@@ -6,11 +6,27 @@ SUMMARY_SYSTEM_PROMPT = """
 """.strip()
 
 
-def build_summary_prompt(file_name: str, transcript: str) -> str:
+def build_summary_prompt(
+    file_name: str,
+    transcript: str,
+    meeting_date: str = "",
+    meeting_time: str = "",
+    meeting_start_time: str = "",
+    meeting_end_time: str = "",
+) -> str:
+    metadata_lines = [
+        f"- 회의 날짜: {meeting_date or '확인 필요'}",
+        f"- 회의 시간: {meeting_time or '확인 필요'}",
+        f"- 시작 시간: {meeting_start_time or '확인 필요'}",
+        f"- 종료 시간: {meeting_end_time or '확인 필요'}",
+    ]
     return f"""
 아래 클로바노트 TXT를 회의록으로 요약해 주세요.
 
 파일명: {file_name}
+
+확정 회의 메타데이터:
+{chr(10).join(metadata_lines)}
 
 반드시 아래 형식을 지켜 주세요.
 
@@ -38,10 +54,12 @@ def build_summary_prompt(file_name: str, transcript: str) -> str:
 
 작성 규칙:
 - 제목은 회의 성격이 드러나게 간결하게 작성합니다.
+- 회의 정보의 날짜와 시간은 위 확정 회의 메타데이터를 transcript보다 우선 사용합니다.
+- 확정 회의 메타데이터에 값이 있으면 "확인 필요"라고 쓰지 않습니다.
 - 핵심 요약은 3~5개 bullet로 작성합니다.
 - 액션 아이템은 담당자, 업무, 상태를 표로 작성합니다.
 - Flow 공유용 요약은 메신저에 그대로 붙여 넣을 수 있게 5~10줄로 작성합니다.
-- 원문에 없는 날짜, 시간, 담당자는 꾸며내지 말고 "확인 필요"라고 작성합니다.
+- 확정 메타데이터와 원문에 모두 없는 날짜, 시간, 담당자는 꾸며내지 말고 "확인 필요"라고 작성합니다.
 
 --- 원문 시작 ---
 {transcript}

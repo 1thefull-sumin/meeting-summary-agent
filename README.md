@@ -84,7 +84,10 @@ cp .env.example .env
 ```text
 OPENAI_API_KEY=sk-...
 OPENAI_MODEL=gpt-4o-mini
-OPENAI_STT_MODEL=whisper-1
+OPENAI_STT_MODEL=gpt-4o-mini-transcribe
+OPENAI_STT_PROMPT=한국어 회의 음성입니다. 회의 참석자의 발화를 가능한 정확히 전사하고, 전문 용어와 제품명은 유지해주세요.
+OPENAI_STT_PREPROCESS_AUDIO=true
+OPENAI_STT_SAMPLE_RATE=24000
 FLASK_HOST=127.0.0.1
 FLASK_PORT=5000
 MYSQL_HOST=127.0.0.1
@@ -167,10 +170,13 @@ storage/flow/         # Flow 공유용 문구
 ```text
 OPENAI_API_KEY=sk-...
 OPENAI_MODEL=gpt-4o-mini
-OPENAI_STT_MODEL=whisper-1
+OPENAI_STT_MODEL=gpt-4o-mini-transcribe
+OPENAI_STT_PROMPT=한국어 회의 음성입니다. 회의 참석자의 발화를 가능한 정확히 전사하고, 전문 용어와 제품명은 유지해주세요.
+OPENAI_STT_PREPROCESS_AUDIO=true
+OPENAI_STT_SAMPLE_RATE=24000
 ```
 
-`OPENAI_STT_MODEL`은 기본값이 `whisper-1`입니다. OpenAI 계정에서 다른 음성 전사 모델을 사용하고 싶다면 이 값을 바꾸면 됩니다.
+`OPENAI_STT_MODEL`은 `gpt-4o-mini-transcribe`, `gpt-4o-transcribe`, `whisper-1` 중 사용할 모델로 바꿀 수 있습니다.
 
 ## 짧은 테스트 녹음 필터링
 
@@ -405,6 +411,25 @@ GET /api/meetings/<id>/audio
 ```
 
 지원 형식은 `webm`, `m4a`, `mp3`, `wav`입니다. 회의록에 `audio_path`가 없으면 상세 화면에 “연결된 원본 오디오가 없습니다.”라고 표시됩니다. `status=deleted`로 soft delete된 회의록은 상세 조회와 오디오 재생이 모두 차단됩니다.
+
+## STT 품질 개선 설정
+
+STT 요청에는 `language='ko'`와 회의 전사용 prompt가 함께 전달됩니다. prompt는 `.env`에서 조정할 수 있습니다.
+
+```bash
+OPENAI_STT_PROMPT=한국어 회의 음성입니다. 회의 참석자의 발화를 가능한 정확히 전사하고, 전문 용어와 제품명은 유지해주세요.
+```
+
+서버에 `ffmpeg`가 설치되어 있으면 STT 전에 audio를 wav로 변환합니다. 원본 파일은 그대로 보존하고, STT 요청용 파일만 `storage/temp_audio/preprocessed/`에 생성합니다.
+
+```bash
+OPENAI_STT_PREPROCESS_AUDIO=true
+OPENAI_STT_SAMPLE_RATE=24000  # 16000 또는 24000
+```
+
+전사 후에는 의미 없는 반복어를 줄이고 문장 단위 줄바꿈을 적용합니다. 원문 의미를 바꾸는 요약/재작성은 하지 않습니다. 전사 결과가 너무 짧거나 반복어 비율이 높으면 DB의 `transcript_quality`가 `low`로 저장되고, 웹 상세 화면에 “전사 품질 낮음”이 표시됩니다.
+
+클로바 TXT와 audio가 같은 이름으로 함께 들어온 경우에는 STT를 다시 돌리지 않고 클로바 TXT를 우선 transcript로 사용합니다.
 
 ## 회의록 출력 포맷
 
