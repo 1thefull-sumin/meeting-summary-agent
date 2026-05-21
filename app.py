@@ -38,7 +38,10 @@ TEMP_AUDIO_DIR = ROOT_DIR / "storage" / "temp_audio"
 KST = ZoneInfo("Asia/Seoul")
 
 load_dotenv(ROOT_DIR / ".env")
-init_db()
+try:
+    init_db()
+except Exception as exc:
+    print(f"[ERROR] DB 초기화 실패, 웹 서버는 계속 시작합니다: {exc}", flush=True)
 
 app = Flask(__name__, static_folder=str(WEB_DIR), static_url_path="")
 
@@ -46,15 +49,6 @@ app = Flask(__name__, static_folder=str(WEB_DIR), static_url_path="")
 @app.get("/")
 def index():
     return send_from_directory(WEB_DIR, "index.html")
-
-
-@app.get("/media/<path:file_path>")
-def media_file(file_path: str):
-    target = (ROOT_DIR / file_path).resolve()
-    root = ROOT_DIR.resolve()
-    if os.path.commonpath([str(root), str(target)]) != str(root) or not target.is_file():
-        return jsonify({"error": "파일을 찾을 수 없습니다."}), 404
-    return send_from_directory(target.parent, target.name)
 
 
 @app.get("/api/meetings")
@@ -79,6 +73,25 @@ def api_get_meeting(meeting_id: int):
     if not item:
         return jsonify({"error": "회의록을 찾을 수 없습니다."}), 404
     return jsonify(item)
+
+
+@app.get("/api/meetings/<int:meeting_id>/audio")
+def api_meeting_audio(meeting_id: int):
+    item = get_meeting(meeting_id)
+    if not item:
+        return jsonify({"error": "회의록을 찾을 수 없거나 삭제된 회의록입니다."}), 404
+    audio_path = item.get("audio_path") or ""
+    if not audio_path:
+        return jsonify({"error": "연결된 원본 오디오가 없습니다."}), 404
+    target = (ROOT_DIR / audio_path).resolve()
+    root = ROOT_DIR.resolve()
+    if os.path.commonpath([str(root), str(target)]) != str(root):
+        return jsonify({"error": "허용되지 않은 파일 경로입니다."}), 403
+    if target.suffix.lower() not in {".webm", ".m4a", ".mp3", ".wav"}:
+        return jsonify({"error": "지원하지 않는 오디오 형식입니다."}), 415
+    if not target.is_file():
+        return jsonify({"error": "오디오 파일을 찾을 수 없습니다."}), 404
+    return send_from_directory(target.parent, target.name, conditional=True)
 
 
 @app.delete("/api/meetings/<int:meeting_id>")
@@ -161,24 +174,51 @@ def api_recording_upload():
 
 @app.post("/api/recordings/start")
 def api_recording_start():
-    TEMP_AUDIO_DIR.mkdir(parents=True, exist_ok=True)
-    AUDIO_DIR.mkdir(parents=True, exist_ok=True)
-    recording_id = uuid.uuid4().hex
-    timestamp = datetime.now(KST).strftime("%Y%m%d_%H%M%S")
-    audio_name = f"{timestamp}_meeting_{recording_id}.webm"
-    session_dir = TEMP_AUDIO_DIR / recording_id
-    session_dir.mkdir(parents=True, exist_ok=True)
-    meta = {
-        "recording_id": recording_id,
-        "audio_name": audio_name,
-        "timestamp": timestamp,
-        "created_at": datetime.now(KST).isoformat(timespec="seconds"),
-        "started_at": request.json.get("started_at", "") if request.is_json else "",
-        "status": "recording",
-    }
-    (session_dir / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"[RECORDING] 임시 녹음 세션 생성: {recording_id} / {audio_name}", flush=True)
-    return jsonify({"ok": True, "recording_id": recording_id, "audio_name": audio_name})
+    try:
+        TEMP_AUDIO_DIR.mkdir(parents=True, exist_ok=True)
+        AUDIO_DIR.mkdir(parents=True, exist_ok=True)
+        recording_id = uuid.uuid4().hex
+        timestamp = datetime.now(KST).strftime("%Y%m%d_%H%M%S")
+        audio_name = f"{timestamp}_meeting_{recording_id}.webm"
+        session_dir = TEMP_AUDIO_DIR / recording_id
+        session_dir.mkdir(parents=True, exist_ok=True)
+        payload = request.get_json(silent=True) or {}
+        meta = {
+            "recording_id": recording_id,
+            "audio_name": audio_name,
+            "timestamp": timestamp,
+            "created_at": datetime.now(KST).isoformat(timespec="seconds"),
+            "started_at": payload.get("started_at", ""),
+            "status": "recording",
+        }
+        (session_dir / "meta.json").write_text(
+            json.dumps(meta, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        print(f"[RECORDING] 임시 녹음 세션 생성: {recording_id} / {audio_name}", flush=True)
+        return jsonify(
+            {
+                "ok": True,
+                "status": "ready",
+                "recording_id": recording_id,
+                "audio_name": audio_name,
+            }
+        )
+    except Exception as exc:
+        print(f"[RECORDING] start 실패 사유: {exc}", flush=True)
+        write_failure_log(
+            event="recording_start_failed",
+            file_name="recording_start",
+            error=str(exc),
+            extra={"temp_audio_dir": str(TEMP_AUDIO_DIR)},
+        )
+        return jsonify(
+            {
+                "error": "서버 문제로 녹음 임시 저장소를 만들지 못했습니다.",
+                "error_type": "server",
+                "detail": str(exc),
+            }
+        ), 500
 
 
 @app.post("/api/recordings/chunk")

@@ -60,13 +60,36 @@ async function loadMeetings() {
 function filteredMeetings() {
   const query = search.value.trim().toLowerCase();
   return meetings.filter(item => {
-    const matchesSearch = !query || String(item.search_text || "").toLowerCase().includes(query);
+    const matchesSearch = !query || searchableText(item).includes(query);
     const matchesFilter = activeFilter === "all"
       || (activeFilter === "done" && item.status === "done")
       || (activeFilter === "pending" && item.status === "pending")
       || (activeFilter === "actions" && item.has_action_items);
     return matchesSearch && matchesFilter;
   });
+}
+
+function hasSearchQuery() {
+  return search.value.trim().length > 0;
+}
+
+function searchableText(item) {
+  return [
+    item.title,
+    item.date,
+    item.meeting_time,
+    item.meeting_start_time,
+    item.meeting_end_time,
+    item.source_filename,
+    item.key_summary,
+    item.decisions,
+    item.next_actions,
+    item.risks,
+    item.flow_text,
+    item.raw_text,
+    item.search_text,
+    JSON.stringify(item.action_items || [])
+  ].join("\n").toLowerCase();
 }
 
 function groupByDate(items) {
@@ -127,9 +150,18 @@ function renderCalendar() {
 
 function renderList() {
   const items = filteredMeetings();
-  const shownItems = selectedDate ? items.filter(item => item.date === selectedDate) : currentMonthMeetings(items);
+  const searching = hasSearchQuery();
+  const shownItems = searching
+    ? items
+    : selectedDate
+      ? items.filter(item => item.date === selectedDate)
+      : items;
   visibleCount.textContent = `${shownItems.length}건`;
-  selectedDateTitle.textContent = selectedDate ? `${selectedDate} 회의록` : `${monthLabel(calendarYear, calendarMonth)} 회의록`;
+  selectedDateTitle.textContent = searching
+      ? "검색 결과"
+      : selectedDate
+        ? `${selectedDate} 회의록`
+        : "전체 회의록";
   list.innerHTML = shownItems.map(item => `
     <button class="meetingCard ${item.id === selectedId ? "selected" : ""}" data-id="${item.id}" type="button">
       <span class="cardTitle">${escapeHtml(item.title)}</span>
@@ -140,7 +172,7 @@ function renderList() {
         ${item.has_action_items ? "<em>액션 포함</em>" : ""}
       </span>
     </button>
-  `).join("") || '<div class="empty">표시할 회의록이 없습니다.</div>';
+  `).join("") || `<div class="empty">${searching ? "검색 결과가 없습니다." : "표시할 회의록이 없습니다."}</div>`;
 
   list.querySelectorAll(".meetingCard").forEach(button => {
     button.addEventListener("click", () => {
@@ -194,12 +226,12 @@ async function renderDetail() {
         <button class="deleteButton" data-delete-id="${item.id}" type="button">삭제</button>
       </div>
     </div>
-    ${item.audio_path ? `
-      <section class="section">
-        <h3>원본 audio</h3>
-        <audio class="audioPlayer" controls src="${mediaUrl(item.audio_path)}"></audio>
-      </section>
-    ` : ""}
+    <section class="section">
+      <h3>원본 오디오</h3>
+      ${item.audio_path ? `
+        <audio class="audioPlayer" controls preload="metadata" src="/api/meetings/${item.id}/audio"></audio>
+      ` : '<p class="emptyText">연결된 원본 오디오가 없습니다.</p>'}
+    </section>
     <section class="section">
       <h3>transcript</h3>
       <details class="transcriptBox">
@@ -214,10 +246,6 @@ async function renderDetail() {
     </section>
   `;
   detail.querySelector(".deleteButton")?.addEventListener("click", () => deleteMeeting(item.id));
-}
-
-function mediaUrl(path) {
-  return `/media/${String(path || "").split("/").map(encodeURIComponent).join("/")}`;
 }
 
 function statusLabel(status) {
@@ -349,8 +377,15 @@ async function beginRecording() {
     return;
   }
 
+  let stream = null;
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (error) {
+    setRecordingState("오류", `마이크 권한 문제: ${recordingErrorMessage(error)}`);
+    return;
+  }
+
+  try {
     const mimeType = chooseMimeType();
     mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
     recordingChunks = [];
@@ -358,7 +393,14 @@ async function beginRecording() {
     recordingChunkSequence = 0;
     recordingStartedAtIso = new Date().toISOString();
     recordingEndedAtIso = "";
-    const session = await startRecordingSession(recordingStartedAtIso);
+    let session;
+    try {
+      session = await startRecordingSession(recordingStartedAtIso);
+    } catch (error) {
+      stream.getTracks().forEach(track => track.stop());
+      setRecordingState("오류", `서버 문제: ${error.message}`);
+      return;
+    }
     recordingSessionId = session.recording_id;
 
     mediaRecorder.addEventListener("dataavailable", event => {
@@ -380,7 +422,8 @@ async function beginRecording() {
     stopRecording.disabled = false;
     setRecordingState("● 녹음 중", "녹음 원본을 임시 저장소에 계속 보존하고 있습니다.");
   } catch (error) {
-    setRecordingState("오류", `마이크 권한 또는 녹음 시작 실패: ${error.message}`);
+    if (stream) stream.getTracks().forEach(track => track.stop());
+    setRecordingState("오류", `녹음 장치 문제: ${recordingErrorMessage(error)}`);
   }
 }
 
@@ -404,8 +447,18 @@ async function startRecordingSession(startedAt) {
     body: JSON.stringify({ started_at: startedAt })
   });
   const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload.error || "녹음 세션 생성에 실패했습니다.");
+  if (!response.ok) {
+    const detail = payload.detail ? ` (${payload.detail})` : "";
+    throw new Error(payload.error || `녹음 세션 생성에 실패했습니다.${detail}`);
+  }
   return payload;
+}
+
+function recordingErrorMessage(error) {
+  if (error?.name === "NotAllowedError") return "브라우저에서 마이크 권한이 거부되었습니다.";
+  if (error?.name === "NotFoundError") return "사용 가능한 마이크를 찾지 못했습니다.";
+  if (error?.name === "NotReadableError") return "다른 앱이 마이크를 사용 중이거나 장치에 접근할 수 없습니다.";
+  return error?.message || "알 수 없는 오류가 발생했습니다.";
 }
 
 async function uploadRecordingChunk(blob, sequence) {

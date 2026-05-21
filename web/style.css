@@ -203,6 +203,11 @@ input {
   margin-top: 8px;
 }
 
+.emptyText {
+  margin-top: 8px;
+  color: var(--muted);
+}
+
 .transcriptBox summary {
   cursor: pointer;
   color: var(--blue);

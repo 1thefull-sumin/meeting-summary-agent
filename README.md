@@ -398,6 +398,14 @@ Markdown 회의록 보기
 Flow 공유 문구 보기
 ```
 
+원본 오디오는 파일 경로를 직접 노출하지 않고 아래 API를 통해 안전하게 재생합니다.
+
+```text
+GET /api/meetings/<id>/audio
+```
+
+지원 형식은 `webm`, `m4a`, `mp3`, `wav`입니다. 회의록에 `audio_path`가 없으면 상세 화면에 “연결된 원본 오디오가 없습니다.”라고 표시됩니다. `status=deleted`로 soft delete된 회의록은 상세 조회와 오디오 재생이 모두 차단됩니다.
+
 ## 회의록 출력 포맷
 
 OpenAI API에는 아래 Markdown 구조를 지키도록 요청합니다.
