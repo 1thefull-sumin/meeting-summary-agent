@@ -1,0 +1,52 @@
+[
+  {
+    "standard": "다솜",
+    "variants": ["다솜이", "다솜 로봇", "다솜서비스", "다솜 서비스"],
+    "description": "실버케어 AI 로봇"
+  },
+  {
+    "standard": "Avadin",
+    "variants": ["아바딘", "아바딘이", "아바딘 서비스"],
+    "description": "회사 내부 제품/서비스명"
+  },
+  {
+    "standard": "추억소환",
+    "variants": ["추억 소환", "추억소환 기능"],
+    "description": "사진 기반 회상 기능"
+  },
+  {
+    "standard": "체조코너",
+    "variants": ["체조 코너", "체조 콘텐츠"],
+    "description": "운동 콘텐츠"
+  },
+  {
+    "standard": "화이트라벨 SaaS",
+    "variants": ["화이트 라벨 SaaS", "화이트라벨 사스", "white label SaaS", "White Label SaaS"],
+    "description": "파트너사가 자체 브랜드로 제공할 수 있는 SaaS 형태"
+  },
+  {
+    "standard": "온디바이스",
+    "variants": ["온 디바이스", "on device", "On-device"],
+    "description": "기기 내부에서 처리되는 AI/컴퓨팅 방식"
+  },
+  {
+    "standard": "에이지테크",
+    "variants": ["AgeTech", "age tech", "에이지 테크"],
+    "description": "고령층 삶의 질과 돌봄을 위한 기술 영역"
+  },
+  {
+    "standard": "호출어 변경",
+    "variants": ["wake word", "Wake Word", "웨이크워드", "웨이크 워드"],
+    "description": "음성 호출어를 변경하는 기능"
+  },
+  {
+    "standard": "보호자앱",
+    "variants": ["Guardian App", "guardian app", "보호자 앱"],
+    "description": "보호자용 앱"
+  },
+  {
+    "standard": "인지활력 리포트",
+    "variants": ["인지 활력 리포트", "인지활력 보고서"],
+    "description": "인지/활력 관련 상태를 정리한 리포트"
+  }
+]

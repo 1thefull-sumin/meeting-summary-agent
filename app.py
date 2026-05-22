@@ -28,6 +28,7 @@ from database import (
 )
 from failure_log import write_failure_log
 from recovery import recover_recordings
+from services.dictionary_loader import load_dictionary
 from summarizer import process_transcript_text, process_txt_file
 from transcriber import AUDIO_DIR, TRANSCRIPT_DIR, transcribe_audio_with_metadata
 from watcher import INPUT_DIR, process_existing_files, start_watcher
@@ -43,6 +44,10 @@ try:
     init_db()
 except Exception as exc:
     print(f"[ERROR] DB 초기화 실패, 웹 서버는 계속 시작합니다: {exc}", flush=True)
+try:
+    load_dictionary()
+except Exception as exc:
+    print(f"[ERROR] 용어 사전 로드 실패, 기본 요약 기능은 계속 실행합니다: {exc}", flush=True)
 
 app = Flask(__name__, static_folder=str(WEB_DIR), static_url_path="")
 

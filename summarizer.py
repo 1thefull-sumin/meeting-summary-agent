@@ -14,6 +14,9 @@ from openai import OpenAI
 
 from database import save_meeting
 from prompts import SUMMARY_SYSTEM_PROMPT, build_summary_prompt
+from services.dictionary_loader import dictionary_prompt_context
+from services.summary_postprocessor import postprocess_summary_markdown, protected_terms_context
+from services.transcript_normalizer import normalize_transcript
 
 
 ROOT_DIR = Path(__file__).resolve().parent
@@ -56,7 +59,7 @@ def process_transcript_text(
     skip_summary_reason: str = "",
     transcript_quality: str = "",
 ) -> int:
-    transcript = transcript.strip()
+    transcript = normalize_transcript(transcript.strip())
     title_seed = title_seed or Path(source_name).stem
     file_hash = file_hash_override or _hash_text((file_hash_seed or source_name) + "\n" + transcript)
     meeting_date = _extract_date_from_text(source_name, transcript, source_path)
@@ -126,6 +129,7 @@ def process_transcript_text(
                 transcript=transcript,
             )
 
+    markdown = postprocess_summary_markdown(markdown)
     markdown = ensure_meeting_info_metadata(
         markdown=markdown,
         meeting_date=meeting_date,
@@ -233,6 +237,8 @@ def summarize_with_openai(
                     meeting_time=meeting_time,
                     meeting_start_time=meeting_start_time,
                     meeting_end_time=meeting_end_time,
+                    dictionary_context=dictionary_prompt_context(),
+                    protected_terms=protected_terms_context(),
                 ),
             },
         ],

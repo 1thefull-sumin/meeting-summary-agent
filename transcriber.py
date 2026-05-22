@@ -9,6 +9,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from openai import OpenAI
+from services.transcript_normalizer import normalize_transcript
 
 
 ROOT_DIR = Path(__file__).resolve().parent
@@ -61,7 +62,7 @@ def transcribe_audio_with_metadata(audio_path: str | Path) -> TranscriptionResul
             prompt=prompt,
         )
 
-    text = postprocess_transcript(str(transcript))
+    text = normalize_transcript(postprocess_transcript(str(transcript)))
     if not text:
         raise RuntimeError("STT 결과가 비어 있습니다.")
     quality = assess_transcript_quality(text)
